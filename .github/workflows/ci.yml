@@ -8,8 +8,12 @@ on:
   pull_request:
 
 jobs:
-  integrity:
-    name: Cross-references (tools/doctor.php)
+  # Its own job because it is one assertion about the repository as a whole,
+  # not about any single subject: /engine is the source and every subject holds
+  # a copy of it. Running it inside the matrix below would ask the same question
+  # three times and report it three times.
+  engine:
+    name: Engine is in sync across every subject
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,10 +21,31 @@ jobs:
         with:
           php-version: '8.3'
           coverage: none
-      - name: Engine is in sync across every subject
-        run: php tools/sync-engine.php --check
-      - name: Integrity gate — PHP
-        run: php tools/doctor.php php
+      - run: php tools/sync-engine.php --check
+
+  # A matrix rather than three steps in one job, for the same reason the
+  # unwritten jobs below are listed rather than omitted: the CI tab should say
+  # WHICH subject is failing without anyone opening a log. Three named checks,
+  # and they fail independently.
+  #
+  # This gated php alone until 2026-09-11, from when it was the only subject.
+  # java and kafka were complete and ungated for four days — long enough to have
+  # shipped a broken cross-reference with a green tick above it.
+  integrity:
+    name: Cross-references
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        subject: [php, java, kafka]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: tools/doctor.php ${{ matrix.subject }}
+        run: php tools/doctor.php ${{ matrix.subject }}
 
   # Placeholders for the remaining blueprint §8 jobs. They are listed rather
   # than silently absent so the gap is visible in the CI tab, not just in prose.
