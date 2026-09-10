@@ -47,6 +47,78 @@ jobs:
       - name: tools/doctor.php ${{ matrix.subject }}
         run: php tools/doctor.php ${{ matrix.subject }}
 
+  # Is there a Cloudflare token to deploy WITH?
+  #
+  # Its own job because the `secrets` context is not available in a job-level
+  # `if:`, so the question cannot be asked where the answer is needed. Asking it
+  # here and passing a plain true/false down through `needs` is the way to get a
+  # deploy that SKIPS when the repository has no token, instead of one that runs
+  # and fails red on every push until somebody adds one.
+  #
+  # It prints whether the secret is set, never the secret.
+  secrets-present:
+    name: Deploy credentials present
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "CLOUDFLARE_API_TOKEN is set — deploy will run."
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "CLOUDFLARE_API_TOKEN is not set — deploy will be skipped."
+            echo "Add it under Settings → Secrets and variables → Actions."
+          fi
+
+  # Push to main deploys. Anything else does not.
+  #
+  # `needs` is the whole point: this runs only after sync-engine and all three
+  # doctor runs are green, so the gate is not decoration. A broken cross-
+  # reference now stops the deploy instead of being published and noticed later.
+  #
+  # ALL THREE SUBJECTS, EVERY TIME, deliberately — no path filter. It looks
+  # wasteful and is not: a change under engine/ or tools/ reaches every subject
+  # through sync-engine.php, so any filter honest enough to catch that would
+  # fire on nearly every push anyway. Cloudflare uploads only the assets whose
+  # hashes changed (the last manual deploy sent 71 of 91 files), so an unchanged
+  # subject costs about fifteen seconds and republishes byte-identical content.
+  #
+  # WHAT THIS DOES NOT DEPLOY: subjects/java/api and subjects/java/src. Those are
+  # Spring Boot and Workers runs V8 isolates. See the note in wrangler.jsonc.
+  deploy:
+    name: Deploy ${{ matrix.subject }}
+    needs: [engine, integrity, secrets-present]
+    if: >-
+      github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+      && needs.secrets-present.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        subject: [php, java, kafka]
+    # Queued, not cancelled. Two pushes in quick succession should publish in
+    # the order they were made; cancel-in-progress would let the older one win
+    # if it happened to finish uploading after the newer was killed.
+    concurrency:
+      group: deploy-${{ matrix.subject }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: npx wrangler deploy — subjects/${{ matrix.subject }}
+        working-directory: subjects/${{ matrix.subject }}
+        env:
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        # Major pinned. `npx wrangler` unpinned would take a v5 the day it ships,
+        # on a repository whose entire premise is having no build step to break.
+        run: npx --yes wrangler@4 deploy
+
   # Placeholders for the remaining blueprint §8 jobs. They are listed rather
   # than silently absent so the gap is visible in the CI tab, not just in prose.
   #
