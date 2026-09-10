@@ -1,0 +1,62 @@
+# One artefact, many environments — chapter 13.
+#
+# Nothing environment-specific is baked in here: the defaults are what a developer
+# gets, and every one of them can be overridden by an environment variable, because
+# Spring's later sources win over earlier ones. ORDINI_ENVIRONMENTNAME beats the value
+# below without a rebuild, which is the whole point of building the artefact once and
+# promoting it.
+#
+# No secrets in this file, ever. There are none here yet because there is nothing to
+# keep secret; when there is, it arrives as an environment variable or from a secret
+# store, and the repository never learns it.
+
+spring:
+  application:
+    name: ordini
+
+  datasource:
+    # Overridden per environment. Nothing here is a production value, and the password
+    # being visible is the point: it is a local default, and the real one arrives as
+    # SPRING_DATASOURCE_PASSWORD from a secret store.
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/ordini}
+    username: ${SPRING_DATASOURCE_USERNAME:ordini}
+    password: ${SPRING_DATASOURCE_PASSWORD:ordini}
+    hikari:
+      # Small pools are faster. Chapter 22: a pool is not a queue, and sizing it above
+      # what the database can actually run concurrently just moves the waiting.
+      # Remember this is per replica — three replicas of ten is thirty connections.
+      maximum-pool-size: 10
+      # Below the database's and the firewall's idle timeouts, or the pool hands out
+      # connections the other end has already closed.
+      max-lifetime: 300000
+      connection-timeout: 3000
+
+  jpa:
+    hibernate:
+      # validate, never update, and never create-drop outside a test. Chapter 29:
+      # update guesses, and a guess that drops a column is not recoverable.
+      ddl-auto: validate
+    # Off, deliberately. Chapter 23: open-in-view hides LazyInitializationException by
+    # holding a connection open for the whole request, including the time spent writing
+    # JSON — so the pool is exhausted by slow clients rather than by slow queries.
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+
+ordini:
+  environment-name: local
+  max-page-size: 100
+
+server:
+  port: 8080
+  # Without this, a deploy drops every request that was in flight. Chapter 42.
+  shutdown: graceful
+
+logging:
+  level:
+    it.fonderia.ordini: DEBUG

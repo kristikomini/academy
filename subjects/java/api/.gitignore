@@ -1,0 +1,4 @@
+# The development signing key and the H2 database file. Neither is ever committed:
+# anyone holding the key can mint a token for any user.
+data/
+target/

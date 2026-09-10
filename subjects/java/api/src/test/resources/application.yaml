@@ -1,0 +1,22 @@
+# Tests run against H2 in memory — the SAME engine as the file-based default, with a
+# different URL. Blueprint §5.6: a real relational engine, not a fake in-memory provider,
+# because a fake is not a database and happily passes tests that fail against anything you
+# would deploy.
+#
+# The real schema.sql runs, so the tests exercise the schema that ships.
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:accounts-test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
+accounts:
+  # Fixed here so tests do not write a key file, and so a signature is stable across runs.
+  jwt-signing-key: "test-only-signing-key-not-used-anywhere-else-0123456789"
+  chapter-count: 52

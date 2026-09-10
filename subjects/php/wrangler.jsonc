@@ -1,0 +1,55 @@
+{
+  // PHP academy — static site on Cloudflare Workers static assets.
+  //
+  // Almost assets-only: files are served from ./site; worker.mjs runs only for the
+  // handful of paths that match nothing — really just "/".
+  // Deploy with `npx wrangler deploy` from this directory.
+  //
+  // NOTE: this subject is still IN PROGRESS (api/ and src/ are empty). Deploy it
+  // when the content is ready; the config is here so it is one command when it is.
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "php-academy",
+  "compatibility_date": "2026-09-06",
+  // The smallest possible Worker, so that "/" serves index.html while
+  // html_handling stays "none". worker.mjs explains why both are needed.
+  "main": "worker.mjs",
+  // Served from a custom domain on testdemo.it, which is already a Cloudflare zone.
+  // custom_domain creates the DNS record on deploy, so there is nothing to add by
+  // hand — and it means no workers.dev subdomain is needed at all.
+  "routes": [
+    { "pattern": "php.testdemo.it", "custom_domain": true }
+  ],
+  "workers_dev": false,
+  "assets": {
+    "directory": "./site",
+    // How the Worker reaches the asset server.
+    "binding": "ASSETS",
+    // "none" — every path maps 1:1 to a file, and nothing is redirected.
+    //
+    // NOT "auto-trailing-slash", which was here and was wrong. It 307s /notes.html
+    // to /notes, and this site has a service worker. A redirected response cannot be
+    // stored in a Cache, so cache.add("notes.html") rejects and the page is never
+    // precached; the navigation then falls through to a fetch whose redirected
+    // response the browser refuses for a navigation, and the user gets a bare
+    // ERR_FAILED with nothing in the console.
+    //
+    // It never shows up locally: python -m http.server serves /notes.html as 200.
+    // Every internal link in this site is an explicit .html, because the site must
+    // also open from file:// — so there is nothing for the prettifier to gain here
+    // and a whole class of failure for it to cause.
+    "html_handling": "none",
+    // "none", NOT "404-page", even though site/404.html now exists.
+    //
+    // The two are not interchangeable. With "404-page" the asset layer answers a
+    // NAVIGATION miss by itself and the Worker is never invoked — which also means
+    // "/" never reaches worker.mjs's index.html rewrite, so the home page breaks
+    // while curl and fetch() (which are not navigations) keep looking healthy.
+    // "none" lets every miss fall through to worker.mjs, which serves site/404.html
+    // itself and keeps a truthful 404 status: a branded page returned as 200 is a
+    // soft 404, which search engines index and which hides broken links from
+    // anyone testing with curl.
+    //
+    // And never a 401: the tutorial is public, every page and asset anonymous.
+    "not_found_handling": "none"
+  }
+}

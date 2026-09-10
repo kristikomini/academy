@@ -1,0 +1,43 @@
+{
+  "_comment": [
+    "Which golden rules are promoted out of their chapter and into the two headline",
+    "tiers of the viva deck. Read by tools/viva-extract.php; the order here is the",
+    "order they appear in GOLDEN-RULES.md and in the deck, so it is rehearsal order,",
+    "not chapter order.",
+    "",
+    "This is the one editorial judgement in an otherwise generated pipeline. The twelve",
+    "run in the order the ideas depend on each other: the log, then ordering, then the",
+    "durability and delivery arguments that everything downstream rests on.",
+    "",
+    "Note the shape of this list against the Java one. No advert here asks for Kafka",
+    "alone, so the questions that decide the interview are the model questions — what",
+    "the log guarantees and what it does not — rather than API surface.",
+    "",
+    "Every entry must be a slug that tools/viva-extract.php --candidates prints. A slug",
+    "that no longer exists is reported as a WARNING rather than silently dropped."
+  ],
+
+  "twelve": [
+    "an-append-only-log-and-each-consumer-owns-its-position",
+    "ordering-is-per-partition-therefore-per-key",
+    "the-key-chooses-the-partition",
+    "a-partition-goes-to-exactly-one-member-of-a-group",
+    "acks-all-alone-is-not-enough",
+    "auto-commit-commits-on-a-timer-not-on-success",
+    "at-least-once-is-the-sane-default",
+    "exactly-once-delivery-is-impossible-exactly-once-effect-is-not",
+    "insert-the-id-under-a-unique-constraint-in-the-same-transaction-as",
+    "there-is-no-transaction-across-your-database-and-kafka",
+    "a-poison-pill-blocks-its-partition-forever",
+    "compaction-keeps-the-latest-value-per-key"
+  ],
+
+  "senior": [
+    "rf-3-min-isr-2",
+    "a-slow-handler-looks-exactly-like-a-crash",
+    "lag-measures-commits-not-work",
+    "a-group-that-disappears-looks-healthy",
+    "offset-translation-is-the-hard-part-of-failover",
+    "write-the-event-to-an-outbox-table-in-the-same-transaction"
+  ]
+}

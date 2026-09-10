@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The application. Spring Boot, and the only module that knows the framework exists.
+
+  Look at the dependency list next to ordini-domain's. That one declares JUnit and
+  nothing else; this one declares web, validation and Boot's test support. The
+  dependency direction is app → domain and never the reverse, and it is enforced here
+  rather than in a code review: nothing in ordini-domain can import Spring, because
+  Spring is not on its classpath.
+
+  Note what is NOT here yet: no JPA, no database driver, no Kafka. The repository is
+  in memory for now, and modules 21–25 are where persistence arrives. A pom that
+  declared them early would make the layering claim untestable.
+
+  Covered in: course/module-16-boot-and-autoconfiguration/README.md
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>it.fonderia</groupId>
+    <artifactId>ordini-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>ordini-app</artifactId>
+  <name>Fonderia Academy — application</name>
+
+  <dependencies>
+    <dependency>
+      <groupId>it.fonderia</groupId>
+      <artifactId>ordini-domain</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <!-- A starter is a version opinion, not a library. spring-boot-starter-web pulls
+         in Tomcat, Jackson, the MVC stack and their compatible versions; you take the
+         opinion or you take the job of curating it yourself. Chapter 14. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+
+    <!-- Persistence. Adding this starter is what makes a DataSource, a connection
+         pool, an EntityManagerFactory and a transaction manager appear: none of them
+         are declared anywhere in this project. That is auto-configuration's
+         @ConditionalOnClass doing its job, and module 16 lab A shows the report. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+
+    <!-- Migrations are a reviewed artefact, versioned with the code. Chapter 29. -->
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-core</artifactId>
+    </dependency>
+
+    <!-- The database this is deployed on. runtime scope: no code imports it. -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- The database the fast tests run on, and a compromise stated out loud:
+         chapter 38's rule is "H2 is not Oracle", and it is not PostgreSQL either.
+         H2 is here so the mapping tests run in milliseconds with no daemon; the
+         Testcontainers test below is the one that runs against the real thing. -->
+    <dependency>
+      <!-- runtime, not test: the "dev" profile uses it so the jar can be started with
+           nothing installed. It is never on the production path — that profile is not
+           active there, and the URL comes from the environment. -->
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <!-- The JUnit 5 extension. The postgresql module is the container definition and
+           does not bring it, which is a five-minute confusion the first time. -->
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <!-- Fast tests and slow tests are different commands.
+             Chapter 39: a suite that takes four minutes stops being run before a push,
+             so the *IT classes are excluded from `mvn test` and belong to Failsafe. -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <excludes>
+            <exclude>**/*IT.java</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <!-- Declaring the goal explicitly is required here.
+
+                 spring-boot-starter-parent binds `repackage` for you; we import the
+                 Boot BOM instead, which carries versions and nothing else. Without
+                 this block the plugin is on the build and does nothing, `mvn package`
+                 produces an ordinary jar, and the failure appears only when someone
+                 runs it: "no main manifest attribute". The build is green the whole
+                 time — which is why this is worth a comment rather than a fix. -->
+            <goals>
+              <goal>repackage</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

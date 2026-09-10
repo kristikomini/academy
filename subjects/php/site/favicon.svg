@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Bottega Academy — PHP">
+  <!-- An initial, not the "php" wordmark, and not the `mark` from subject.js.
+       The wordmark was tried first and rejected on the evidence: three letters
+       across 44px of artwork is under 4px each in a 16px tab, where it renders
+       as a horizontal smudge — and the tab strip is where a favicon does its
+       only real work. Colour is PHP's own indigo, deepened so the white glyph
+       clears 3:1 against the middle of the gradient. Same reasoning in java/
+       and kafka/; the three are meant to be read as a set. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4A5585"/>
+      <stop offset="1" stop-color="#7C87C0"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#g)"/>
+  <text x="32" y="46" text-anchor="middle"
+        font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="40" font-weight="800" fill="#ffffff">P</text>
+</svg>

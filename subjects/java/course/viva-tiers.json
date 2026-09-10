@@ -1,0 +1,40 @@
+{
+  "_comment": [
+    "Which golden rules are promoted out of their chapter and into the two headline",
+    "tiers of the viva deck. Read by tools/viva-extract.php; the order here is the",
+    "order they appear in GOLDEN-RULES.md and in the deck, so it is rehearsal order,",
+    "not chapter order.",
+    "",
+    "This is the one editorial judgement in an otherwise generated pipeline. The test",
+    "for 'twelve': would a Java/Spring interview in Modena or Bologna plausibly turn on",
+    "whether the candidate can say this out loud? The test for 'senior': does knowing it",
+    "show you have operated a system rather than only built one?",
+    "",
+    "Every entry must be a slug that tools/viva-extract.php --candidates prints. A slug",
+    "that no longer exists is reported as a WARNING rather than silently dropped."
+  ],
+
+  "twelve": [
+    "override-equals-and-hashcode-together",
+    "generics-are-erased",
+    "streams-are-lazy-and-single-use",
+    "visibility-is-not-atomicity",
+    "what-you-get-injected-is-usually-a-proxy",
+    "constructor-injection",
+    "dirty-checking-means-mutation-is-persistence",
+    "rollback-on-unchecked-only",
+    "join-fetch-or-entitygraph-per-query",
+    "never-return-an-entity",
+    "status-codes-are-the-api",
+    "validate-in-production-never-update"
+  ],
+
+  "senior": [
+    "the-heap-is-not-the-whole-footprint",
+    "every-replica-has-its-own-pool",
+    "retries-multiply-through-a-chain",
+    "alert-on-symptoms-errors-p95-p99-latency-saturation",
+    "liveness-restarts-readiness-removes-from-traffic",
+    "build-once-promote-the-artefact"
+  ]
+}

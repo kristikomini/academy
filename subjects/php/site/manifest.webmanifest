@@ -1,0 +1,26 @@
+{
+  "name": "Bottega Academy — PHP per l'Emilia-Romagna",
+  "short_name": "Bottega",
+  "description": "The PHP a software house in this region actually runs, written from real adverts in Emilia-Romagna, with tests, spaced repetition and a spoken viva.",
+  "start_url": "index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#10121a",
+  "theme_color": "#161925",
+  "lang": "en",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Today's review", "url": "review.html", "description": "The spaced-repetition session due now" },
+    { "name": "Viva", "url": "viva.html", "description": "Say a golden rule's justification out loud" },
+    { "name": "Interview simulator", "url": "simulate.html", "description": "A timed mixed round, spoken" }
+  ]
+}

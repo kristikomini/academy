@@ -1,0 +1,17 @@
+# The integration-test profile. Deliberately almost empty.
+#
+# @ServiceConnection on the PostgreSQLContainer supplies the JDBC url, username and
+# password, so there is nothing to write here and nothing that can drift from what the
+# container actually started. Overriding the H2 datasource from application.yaml is the
+# container's job, not this file's.
+#
+# Flyway runs the same migrations as production. Chapter 39: run your real migrations
+# against the container, or the schema under test is one nobody will ever deploy.
+
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+ordini:
+  environment-name: it

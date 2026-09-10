@@ -1,0 +1,28 @@
+# Test defaults: H2, so the mapping and repository tests run in milliseconds with no
+# daemon and no network.
+#
+# This is a compromise and the course says so out loud. Chapter 38: "H2 is not Oracle",
+# and it is not PostgreSQL either — it will accept SQL PostgreSQL rejects, and it has
+# different locking, different error codes and a different query planner. The
+# Testcontainers test is the one that runs against the real thing; these are the fast
+# ones that catch mapping mistakes.
+#
+# PostgreSQL compatibility mode gets the dialect close enough for the migration in
+# db/migration to run unchanged, which keeps one set of migrations rather than two.
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:ordini;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+
+ordini:
+  environment-name: test
+  max-page-size: 100

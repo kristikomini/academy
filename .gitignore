@@ -1,0 +1,22 @@
+# Maven build output for the Java accounts service. 54 MB of compiled classes
+# and jars against 8 MB of actual source — and every byte of it is reproducible
+# from api/pom.xml with ./mvnw package.
+target/
+
+# Wrangler's per-subject local state and build cache. Recreated by
+# `npx wrangler deploy`; none of it is source, and it can carry account ids.
+.wrangler/
+
+node_modules/
+
+# The engine copies inside each subject are NOT ignored, deliberately. They are
+# generated — tools/sync-engine.php writes them from /engine — but they are also
+# what Cloudflare serves, since wrangler deploys subjects/<name>/site as-is with
+# no build step. Ignoring them would deploy a site missing its stylesheet.
+# tools/doctor.php fails the build if a copy drifts, which is what keeps a
+# checked-in generated file honest here.
+
+# OS and editor noise
+Thumbs.db
+.DS_Store
+*~

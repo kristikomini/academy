@@ -1,0 +1,19 @@
+# The profile that lets the jar run with nothing installed.
+#
+#   java -jar ordini-app.jar --spring.profiles.active=dev
+#
+# H2 in PostgreSQL compatibility mode, in memory, migrated by the same Flyway scripts
+# as production. It exists so the labs in the course can be run on a laptop without a
+# database — not as a suggestion that dev and prod should differ. Chapter 39's rule is
+# to test against the database you deploy on, and the Testcontainers test is what does
+# that; this is a convenience for poking at the API by hand.
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:ordini-dev;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+
+ordini:
+  environment-name: dev

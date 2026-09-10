@@ -1,0 +1,74 @@
+# It must run with NO configuration at all. Blueprint §5.5.
+#
+# Everything below is a default that works: an H2 file under data/, a signing key
+# generated on first run in development, and the schema created if missing. Clone the
+# repository, `mvn spring-boot:run`, and it works — which is the property that makes it
+# worth putting in a portfolio.
+
+spring:
+  application:
+    name: accounts
+
+  datasource:
+    # A file, not in-memory, so accounts survive a restart. H2 is a real relational
+    # engine — it plans queries and enforces constraints — which is the property that
+    # matters; the tests use the same engine with an in-memory URL.
+    url: jdbc:h2:file:./data/accounts;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      # NONE, because schema.sql owns the schema. Never `update`: it guesses, and a guess
+      # that drops a column is not recoverable.
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  sql:
+    init:
+      # Create-if-missing on every start. The script is entirely IF NOT EXISTS, so this is
+      # idempotent — see the comment at the top of schema.sql for why this is the right
+      # trade here and the wrong one almost everywhere else.
+      mode: always
+      schema-locations: classpath:schema.sql
+
+server:
+  port: 8090
+  shutdown: graceful
+
+accounts:
+  # Blank in development: generated on first run and kept in data/dev-signing-key.txt,
+  # which is git-ignored. REQUIRED anywhere else — the service refuses to start without
+  # it rather than booting green and failing at the first sign-in.
+  jwt-signing-key: ""
+  access-token-lifetime: 15m
+  refresh-token-lifetime: 30d
+  reset-ticket-lifetime: 15m
+  # The mastery denominator. Must equal the site manifest's chapter count — 52 for the
+  # Java subject. Blueprint §11 lists this as a known drift point between the two.
+  chapter-count: 52
+  auth-requests-per-minute: 10
+  max-failed-attempts: 8
+  lockout-duration: 15m
+  allowed-origins:
+    # "null" is the literal Origin a page opened from file:// sends.
+    - "null"
+    # The deployed sites. Without these every call from the published site is a CORS
+    # failure — the browser blocks the response before any of this service's code runs,
+    # so the symptom is a network error in the console, not a 401 you can debug here.
+    - "https://spring.testdemo.it"
+    - "https://kafka.testdemo.it"
+    - "https://php.testdemo.it"
+    - "http://localhost:8099"
+    - "http://localhost:8100"
+    - "http://localhost:8101"
+    - "http://127.0.0.1:8100"
+
+logging:
+  level:
+    it.fonderia.accounts: DEBUG

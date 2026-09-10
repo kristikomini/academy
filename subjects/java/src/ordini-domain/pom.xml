@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The domain. Deliberately the smallest pom in the build.
+
+  There is no Spring here, no Jakarta Persistence, no Jackson. That is the point and
+  it is enforced rather than requested: if a class in this module wants @Entity or
+  @Autowired, the build fails, because the annotation is not on the classpath. The
+  order of the dependency list below is the whole architecture argument — nothing to
+  add, and adding something is the mistake.
+
+  Covered in: course/module-10-the-domain-model/README.md
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>it.fonderia</groupId>
+    <artifactId>ordini-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>ordini-domain</artifactId>
+  <name>Fonderia Academy — domain</name>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <!-- Parameterised tests, for the cases where the specification is a table and
+           writing it out as one test per row would hide the shape. -->
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-params</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

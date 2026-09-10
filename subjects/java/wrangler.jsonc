@@ -1,0 +1,73 @@
+{
+  // Fonderia Academy — the Java site, on Cloudflare Workers static assets.
+  //
+  // Almost assets-only: every request that matches a file is served straight from
+  // ./site, and worker.mjs runs only for the handful that match nothing — really
+  // just "/". Still no build step and no framework; worker.mjs explains why that
+  // one exception has to exist.
+  //
+  // Deploy with `npx wrangler deploy` from this directory.
+  //
+  // WHAT THIS DOES *NOT* DEPLOY: ../api (the accounts service) and ../src (the
+  // reference application). Both are Spring Boot, and Workers runs V8 isolates —
+  // JavaScript, TypeScript and WASM, no JVM. Those belong on a VPS or a container
+  // platform. The site works completely without them: chapters, quizzes, the viva
+  // deck, the simulator and offline install are all localStorage, and sign-in is the
+  // only feature that needs a server.
+  //
+  // IF YOU DO DEPLOY THE API SOMEWHERE ELSE: the site and the API will then be on
+  // different origins. account.js already lets you type an API base, but you must add
+  // this Worker's URL to `accounts.allowed-origins` in api/src/main/resources/
+  // application.yaml, or the browser will reject every call as a CORS failure.
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "fonderia-academy",
+  "compatibility_date": "2026-09-08",
+  // A three-line Worker, purely to serve index.html at "/". See worker.js for
+  // why html_handling cannot do it here.
+  "main": "worker.mjs",
+  // Served from a custom domain on testdemo.it, which is already a Cloudflare zone.
+  // custom_domain creates the DNS record on deploy, so there is nothing to add by
+  // hand — and it means no workers.dev subdomain is needed at all.
+  //
+  // NOT java.testdemo.it: that name already serves the Jakarta EE Fieldbook from a
+  // VPS. "spring" is also the more accurate label — this course is Java plus Spring
+  // Boot, and every advert it was written from says Spring.
+  "routes": [
+    { "pattern": "spring.testdemo.it", "custom_domain": true }
+  ],
+  "workers_dev": false,
+  "assets": {
+    "directory": "./site",
+    // The Worker reaches the asset server through this binding.
+    "binding": "ASSETS",
+
+    // "none" — every path maps 1:1 to a file, and nothing is redirected.
+    //
+    // NOT "auto-trailing-slash", which was here and was wrong. It 307s /notes.html
+    // to /notes, and this site has a service worker. A redirected response cannot be
+    // stored in a Cache, so cache.add("notes.html") rejects and the page is never
+    // precached; the navigation then falls through to a fetch whose redirected
+    // response the browser refuses for a navigation, and the user gets a bare
+    // ERR_FAILED with nothing in the console.
+    //
+    // It never shows up locally: python -m http.server serves /notes.html as 200.
+    // Every internal link in this site is an explicit .html, because the site must
+    // also open from file:// — so there is nothing for the prettifier to gain here
+    // and a whole class of failure for it to cause.
+    "html_handling": "none",
+
+    // "none", NOT "404-page", even though site/404.html now exists.
+    //
+    // The two are not interchangeable. With "404-page" the asset layer answers a
+    // NAVIGATION miss by itself and the Worker is never invoked — which also means
+    // "/" never reaches worker.mjs's index.html rewrite, so the home page breaks
+    // while curl and fetch() (which are not navigations) keep looking healthy.
+    // "none" lets every miss fall through to worker.mjs, which serves site/404.html
+    // itself and keeps a truthful 404 status: a branded page returned as 200 is a
+    // soft 404, which search engines index and which hides broken links from
+    // anyone testing with curl.
+    //
+    // And never a 401: the tutorial is public, every page and asset anonymous.
+    "not_found_handling": "none"
+  }
+}

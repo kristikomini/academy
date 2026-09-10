@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The reference system for Fonderia Academy — blueprint §9.4.
+
+  This is the code the deep course in ../course/ points at. Its job is to be READ,
+  not to be impressive: every non-obvious decision carries a comment saying what was
+  traded away, because a file the learner cannot argue with teaches nothing.
+
+  It is a multi-module build so that the layering is enforced by the build itself
+  rather than by good intentions. ordini-domain has no Spring and no JPA on its
+  classpath at all — not "should not use them", cannot. That is the cheapest
+  architecture test there is, and it is the same thing the C# subject uses
+  ArchUnit-style tests for.
+
+      ordini-domain   pure Java 21. Money, ids, the order state machine, Result.
+      ordini-app      Spring Boot: web, JPA, the outbox, the whole service.
+
+  Two more modules follow the blueprint's "three companion projects" and are listed
+  in course/README.md: graded exercises that start red, and runnable demos that make
+  invisible behaviour visible. They are not written yet; docs/BUILD-STATUS-java.md
+  says so rather than this file pretending otherwise.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>it.fonderia</groupId>
+  <artifactId>ordini-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>Fonderia Academy — reference system</name>
+  <description>Order fulfilment, written to be read. The code the deep course cites.</description>
+
+  <modules>
+    <module>ordini-domain</module>
+    <module>ordini-app</module>
+  </modules>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <junit.version>5.11.3</junit.version>
+    <spring-boot.version>3.4.1</spring-boot.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- One place declares the version. Module 27 covers why "nearest wins" in
+           Maven makes this the difference between a reproducible build and a
+           NoSuchMethodError that only appears in production. -->
+      <!-- Boot's BOM, imported rather than inherited from spring-boot-starter-parent.
+           Inheriting the starter parent would take its plugin configuration and its
+           resource filtering too, which is convenient until you want a multi-module
+           build with a parent of your own. Importing the BOM keeps the version
+           opinion and leaves the build shape ours. Chapter 40. -->
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.junit</groupId>
+        <artifactId>junit-bom</artifactId>
+        <version>${junit.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+          <version>${spring-boot.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>3.5.2</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.13.0</version>
+          <configuration>
+            <!-- Keep parameter names in the bytecode.
+
+                 spring-boot-starter-parent sets this for you. We import the Boot BOM
+                 instead of inheriting that parent (see dependencyManagement above), so
+                 we inherit the version opinion and none of its plugin configuration —
+                 and this flag is the part that bites. Without it, reflection cannot see
+                 that a controller argument is called "id", so every @PathVariable and
+                 @RequestParam without an explicit name fails at request time with
+                 "Name for argument of type [java.lang.String] not specified".
+
+                 It fails as a 400, not a startup error, so it survives a context-loads
+                 test and appears the first time somebody calls the endpoint. -->
+            <parameters>true</parameters>
+            <compilerArgs>
+              <!-- Warnings are not errors here yet, but they are shown. The moment
+                   this becomes a graded exercise module it turns into -Werror. -->
+              <arg>-Xlint:all</arg>
+            </compilerArgs>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>

@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The accounts service. Blueprint §5.
+
+  A SEPARATE BUILD, ON PURPOSE. It is not a module of ../src, it has no parent in this
+  repository, and nothing in this repository depends on it. Blueprint §5.1: "two systems
+  sharing a repository and nothing else." The site is a static tutorial that happens to be
+  able to talk to this; this is a small service that happens to be talked to by that.
+
+  It inherits spring-boot-starter-parent here, unlike ../src which imports the BOM. The
+  reason is the mirror image of the reason there: this is a single-module build with no
+  parent of its own to want, so the starter parent's plugin configuration — `-parameters`,
+  the `repackage` goal, resource filtering — is exactly what we want and free. Module 16
+  of the course is about that trade; this pom is the other side of it.
+
+  It must run with NO configuration at all (§5.5), so every dependency below has a working
+  default: H2 as a file under data/, a signing key generated on first run in development.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.4.1</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>it.fonderia</groupId>
+  <artifactId>accounts</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <name>Fonderia Academy — accounts service</name>
+  <description>Sign-in and cross-device progress sync for the Academy sites.</description>
+
+  <properties>
+    <java.version>21</java.version>
+    <jjwt.version>0.12.6</jjwt.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+
+    <!-- JWT. jjwt splits api/impl/jackson so that only the api is compile-scoped: your
+         code cannot accidentally depend on the implementation. -->
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-api</artifactId>
+      <version>${jjwt.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-impl</artifactId>
+      <version>${jjwt.version}</version>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-jackson</artifactId>
+      <version>${jjwt.version}</version>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- H2, at runtime scope and as a FILE by default.
+         Blueprint §5.5 wants zero configuration and a real relational engine. H2 is a
+         real engine — it plans queries, enforces constraints and has a dialect — which is
+         the property that matters here and the one Spring's old in-memory fakes lacked.
+         Tests use it in memory, which is the same engine with a different URL. -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>

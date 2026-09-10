@@ -1,0 +1,32 @@
+name: CI
+
+# The gate exists to catch cross-references rotting. That only works if it runs
+# on every change rather than when somebody remembers, so this is deliberately
+# the first job and it has no dependencies to install.
+on:
+  push:
+  pull_request:
+
+jobs:
+  integrity:
+    name: Cross-references (tools/doctor.php)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: Engine is in sync across every subject
+        run: php tools/sync-engine.php --check
+      - name: Integrity gate — PHP
+        run: php tools/doctor.php php
+
+  # Placeholders for the remaining blueprint §8 jobs. They are listed rather
+  # than silently absent so the gap is visible in the CI tab, not just in prose.
+  #
+  #   unit          — PHPUnit against src/          (phase 7)
+  #   integration   — PHPUnit + Testcontainers      (phase 7)
+  #   labs-must-fail— the graded exercises stay red (phase 7)
+  #   audit         — composer audit                (phase 7)
+  #   mutation      — infection, weekly             (phase 7)
