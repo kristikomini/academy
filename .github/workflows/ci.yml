@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        subject: [php, java, kafka]
+        subject: [php, java, kafka, embedded]
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -90,6 +90,14 @@ jobs:
   #
   # WHAT THIS DOES NOT DEPLOY: subjects/java/api and subjects/java/src. Those are
   # Spring Boot and Workers runs V8 isolates. See the note in wrangler.jsonc.
+  #
+  # NOR `embedded`, AND THAT IS WHY THE TWO MATRICES DIFFER. It is gated above
+  # -- the doctor runs on it on every push, which is what stops a cross-reference
+  # rotting -- but it is not published, because most of its chapters are still
+  # labelled placeholders and its wrangler.jsonc would create the
+  # embedded.testdemo.it DNS record on the first run. Add it to THIS matrix when
+  # docs/BUILD-STATUS-embedded.md says the prose is done. Gating and publishing
+  # are separate decisions, and this is the one subject where they differ.
   deploy:
     name: Deploy ${{ matrix.subject }}
     needs: [engine, integrity, secrets-present]

@@ -1,0 +1,26 @@
+{
+  "name": "Centralina Academy — C/C++ embedded e PLC per l'Emilia-Romagna",
+  "short_name": "Centralina",
+  "description": "Embedded C and C++ as the firmware job actually asks for it: pointers and memory, STM32 and the peripherals, an RTOS, serial and Ethernet protocols, and the PLC on the other side of the wire.",
+  "start_url": "index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#10121a",
+  "theme_color": "#161925",
+  "lang": "en",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Today's review", "url": "review.html", "description": "The spaced-repetition session due now" },
+    { "name": "Viva", "url": "viva.html", "description": "Say a golden rule's justification out loud" },
+    { "name": "Interview simulator", "url": "simulate.html", "description": "A timed mixed round, spoken" }
+  ]
+}

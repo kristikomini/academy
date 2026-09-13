@@ -1,0 +1,753 @@
+/* ==========================================================================
+   Bottega Academy — stylesheet
+   One file, no build step, no CDN. Open any page straight from disk.
+   ========================================================================== */
+
+/* ---------- tokens: light ---------- */
+:root {
+  --brand:        #512BD4;   /* .NET purple */
+  --brand-soft:   #ede9fe;
+  --brand-ink:    #3b1fa8;
+
+  /* The far stop of every brand gradient — the logo mark, the level bar, the
+     account avatar. It was written as a literal #8b5cf6 in all three, which
+     survived --brand being keyed per subject and left the most prominent
+     element on the page, the mark in the top bar, half .NET purple on a site
+     about something else. A token because a hard-coded colour cannot be
+     overridden, and the subjects override it from their own <head>.
+     Deliberately not redefined in the dark blocks below: it did not vary by
+     theme before, and a subject that wants it to can say so itself. */
+  --brand-lift:   #8b5cf6;
+
+  /* What is legible ON a filled accent — --brand, --pro, --warn, --kid,
+     --note. Every one of those fills carried a literal #fff, which is only
+     ever right in light mode. Each accent flips to a pale pastel in dark mode,
+     so white on it measured 2.6:1 on the brand (worse once the brand was keyed
+     per subject) and 1.6:1 on the mint --pro of a right answer: the quiz told
+     you which option was correct in white on near-white.
+
+     ONE TOKEN, NOT FIVE, because five would hold the same two values and drift
+     apart by accident. It works because every accent obeys the same shape —
+     dark in light mode, pale in dark — which is also what subject.js promises
+     for the per-subject brand. An accent that broke that shape would be the
+     thing that splits this back into --on-brand, --on-pro and the rest; until
+     one does, the split is duplication with extra steps.
+
+     Engine-level, not in the per-subject block: it varies by theme only. */
+  --on-accent:    #ffffff;
+
+  --bg:           #ffffff;
+  --bg-alt:       #f6f7fb;
+  --bg-sunken:    #eef0f7;
+  --panel:        #ffffff;
+
+  --ink:          #16181d;
+  --ink-soft:     #4a4f5c;
+  --ink-faint:    #767c8c;
+  --line:         #e2e5ee;
+  --line-strong:  #ccd1e0;
+
+  --kid:          #b45309;   /* amber — the five-year-old version */
+  --kid-bg:       #fff8ec;
+  --kid-line:     #f5d9a8;
+
+  --pro:          #0f766e;   /* teal  — what a senior actually says */
+  --pro-bg:       #effcf9;
+  --pro-line:     #b6e6dd;
+
+  --warn:         #b91c1c;   /* red   — traps */
+  --warn-bg:      #fef2f2;
+  --warn-line:    #f6cccc;
+
+  --note:         #1d4ed8;   /* blue  — notes / interview */
+  --note-bg:      #eff4ff;
+  --note-line:    #c8d8fb;
+
+  --code-bg:      #1b1f2b;
+  --code-ink:     #e6e9f0;
+
+  --shadow:       0 1px 2px rgba(16,20,40,.06), 0 8px 24px rgba(16,20,40,.06);
+  --radius:       10px;
+  --sidebar-w:    290px;
+  --font:         "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+  --mono:         "Cascadia Mono", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace;
+}
+
+/* ---------- tokens: dark (system default) ---------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --brand: #a78bfa; --brand-soft: #2a2145; --brand-ink: #c4b5fd; --on-accent: #10121a;
+    --bg: #10121a; --bg-alt: #161925; --bg-sunken: #1c2030; --panel: #161925;
+    --ink: #e8eaf2; --ink-soft: #b3b8c9; --ink-faint: #838a9e;
+    --line: #262b3b; --line-strong: #363c50;
+    --kid: #fbbf24; --kid-bg: #2a2113; --kid-line: #4d3c17;
+    --pro: #5eead4; --pro-bg: #12292a; --pro-line: #1d4a49;
+    --warn: #fca5a5; --warn-bg: #2b1618; --warn-line: #55282c;
+    --note: #93b4fd; --note-bg: #141d33; --note-line: #26365c;
+    --code-bg: #0b0e16; --code-ink: #e6e9f0;
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.35);
+  }
+}
+/* ---------- tokens: dark (explicit toggle) ---------- */
+:root[data-theme="dark"] {
+  --brand: #a78bfa; --brand-soft: #2a2145; --brand-ink: #c4b5fd; --on-accent: #10121a;
+  --bg: #10121a; --bg-alt: #161925; --bg-sunken: #1c2030; --panel: #161925;
+  --ink: #e8eaf2; --ink-soft: #b3b8c9; --ink-faint: #838a9e;
+  --line: #262b3b; --line-strong: #363c50;
+  --kid: #fbbf24; --kid-bg: #2a2113; --kid-line: #4d3c17;
+  --pro: #5eead4; --pro-bg: #12292a; --pro-line: #1d4a49;
+  --warn: #fca5a5; --warn-bg: #2b1618; --warn-line: #55282c;
+  --note: #93b4fd; --note-bg: #141d33; --note-line: #26365c;
+  --code-bg: #0b0e16; --code-ink: #e6e9f0;
+  --shadow: 0 1px 2px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.35);
+}
+
+/* ---------- reset ---------- */
+* { box-sizing: border-box; }
+/* text-size-adjust: iOS Safari inflates the font of any block it decides is
+   the "main" column when the phone is turned to landscape, which on this site
+   means the prose grows but the code blocks, tables and diagrams beside it do
+   not — the page stops being one typographic system halfway through a
+   chapter. 100% keeps the sizes chosen here in both orientations. It does not
+   affect the reader's own text-size setting, which still scales everything. */
+html {
+  scroll-behavior: smooth; scroll-padding-top: 76px;
+  -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+}
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--font); font-size: 16.5px; line-height: 1.68;
+  -webkit-font-smoothing: antialiased;
+  /* The default is an opaque grey rectangle drawn over the whole element on
+     touch, which on the nav links and the cards flashes a box larger than the
+     thing being tapped. A brand tint at low alpha still confirms the tap.
+
+     Declared twice on purpose. The literal is the .NET purple this file was
+     written against and is now wrong on every subject but that one; the
+     color-mix below re-derives the same tint from whatever --brand the subject
+     set. A browser too old for color-mix drops that line and keeps the first,
+     which is a wrong-ish tint — still far better than what dropping both would
+     give it, which is the opaque grey box this property exists to prevent. */
+  -webkit-tap-highlight-color: rgba(81, 43, 212, .14);
+  -webkit-tap-highlight-color: color-mix(in srgb, var(--brand) 14%, transparent);
+}
+/* Reduced motion is a phone setting as much as a desktop one, and the two
+   things it has to catch here are the smooth scroll on every in-page heading
+   link and the drawer sliding in from the edge.
+
+   transition-delay is in the list on purpose. The drawer's visibility is
+   flipped by a delayed transition so that the panel stays on screen for the
+   length of its slide out (see the note by .sidebar below); with the duration
+   zeroed and the delay left alone, the panel would be gone instantly and then
+   spend .18s still in the tab order for no reason at all. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; transition-delay: 0s !important;
+  }
+}
+img, svg { max-width: 100%; }
+a { color: var(--brand); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ==========================================================================
+   Top bar
+   ========================================================================== */
+/* The horizontal padding is written against the safe area because this bar is
+   the one element pinned to the top edge, and a phone held in landscape puts
+   the notch and the rounded corner inside that edge. env() is 0px on every
+   device without an inset and on every browser that has never heard of it —
+   the max() is what keeps the ordinary 18px in that case, since env() would
+   otherwise resolve to 0 and pull the controls to the very edge. Needs
+   `viewport-fit=cover` in the page's viewport meta to be anything but 0. */
+/* THE TOP BAR'S SPACE, HELD OPEN BEFORE THE BAR EXISTS.
+
+   .topbar is in no page's HTML: site.js builds it and prepends it to <body>,
+   and site.js loads at the BOTTOM of the document. So the browser painted a
+   whole page and then had 58px inserted above it, and every page visibly
+   jumped down on every load. Measured on the deployed site that was a 0.16
+   layout shift, where anything over 0.1 counts as bad.
+
+   This holds exactly the bar's height until the bar arrives. site.js adds
+   .chrome-ready in the SAME synchronous block as the insert, so the reserved
+   space and the real bar trade places with no paint in between.
+
+   58px is written out again rather than shared, because the sidebar's top and
+   height just below do the same and one number in five places is this file's
+   existing convention. Change one, change all five. The two media queries at
+   the end of this file touch .topbar's padding and gap only, never its height,
+   which is what makes a single fixed number safe here. */
+body:not(.chrome-ready)::before { content: ""; display: block; height: 58px; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 50; height: 58px;
+  display: flex; align-items: center; gap: 14px;
+  padding-left:  max(18px, env(safe-area-inset-left));
+  padding-right: max(18px, env(safe-area-inset-right));
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.topbar .brand {
+  display: flex; align-items: center; gap: 10px;
+  font-weight: 700; font-size: 17px; color: var(--ink); white-space: nowrap;
+}
+.topbar .brand:hover { text-decoration: none; }
+.brand-mark {
+  width: 28px; height: 28px; border-radius: 7px; flex: 0 0 auto;
+  background: linear-gradient(135deg, var(--brand), var(--brand-lift));
+  color: var(--on-accent); font-size: 12px; font-weight: 800;
+  display: grid; place-items: center; letter-spacing: -.5px;
+}
+.brand-sub { color: var(--ink-faint); font-weight: 500; font-size: 13px; }
+
+/* Moved out of sight rather than display:none or visibility:hidden, either of
+   which would take it out of the tab order and leave it unreachable — the one
+   thing a skip link must never be. .topbar is position:sticky, so it is the
+   containing block this is offset from. */
+.skip {
+  position: absolute; left: 8px; top: 8px; z-index: 60;
+  padding: 8px 14px; border-radius: 8px; font-weight: 600; white-space: nowrap;
+  background: var(--brand); color: var(--on-accent);
+  transform: translateY(-250%); transition: transform .12s ease;
+}
+.skip:focus { transform: translateY(0); }
+.skip:focus, .skip:hover { color: var(--on-accent); text-decoration: none; }
+
+/* Focused only by the skip link, never by tabbing, so the ring would be a
+   box drawn round the entire column for no one's benefit. */
+.main:focus { outline: none; }
+
+/* Nothing in the bar may be shrunk below its content. The bar does not wrap
+   — it cannot, the sidebar is positioned against a fixed 58px height — so a
+   squeezed item does not fold onto a second line, it overflows the viewport
+   and makes the whole document scroll sideways, taking the controls past the
+   right edge with it. The spacer is the only part that gives. */
+.topbar > * { flex: 0 0 auto; }
+.topbar .spacer { flex: 1 1 auto; min-width: 0; }
+
+/* display matters here, and only for the anchors. <button> is inline-block
+   by the user agent's own stylesheet, but <a class="btn"> is plain inline —
+   and padding on an inline box does not grow the line box it sits in. So two
+   of them side by side look identical until the line wraps, at which point
+   the 40px-tall buttons are laid out on 28px lines and overlap each other by
+   the difference. Saying it once here keeps the two elements interchangeable,
+   which is the whole point of a class both of them can wear.
+   (Inside .topbar and the other flex containers this is blockified anyway;
+   it changes nothing there.) */
+.btn {
+  font: inherit; font-size: 13.5px; cursor: pointer;
+  display: inline-block; vertical-align: middle;
+  background: var(--bg-alt); color: var(--ink-soft);
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  padding: 6px 11px; white-space: nowrap;
+}
+.btn:hover { border-color: var(--brand); color: var(--brand); }
+
+/* segmented control: Both / Kid / Pro */
+.segmented { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; }
+.segmented button {
+  font: inherit; font-size: 13px; cursor: pointer; border: 0; padding: 6px 11px;
+  background: var(--bg-alt); color: var(--ink-soft); border-right: 1px solid var(--line-strong);
+}
+.segmented button:last-child { border-right: 0; }
+.segmented button[aria-pressed="true"] { background: var(--brand); color: var(--on-accent); }
+.hamburger { display: none; }
+
+/* ==========================================================================
+   Layout
+   ========================================================================== */
+.layout { display: flex; align-items: flex-start; }
+
+/* ---------- left sidebar ---------- */
+/* 100dvh, not 100vh. On a phone, 100vh is the *large* viewport — the height
+   the page would have if the browser's address bar were collapsed — so a
+   drawer sized in vh runs off the bottom of the screen by the height of that
+   bar while it is still shown, and the last few chapters in the list cannot be
+   reached or even scrolled to. dvh tracks the viewport as the bar comes and
+   goes. The vh line stays first as the fallback for browsers without dvh.
+
+   overscroll-behavior stops the scroll chaining: without it, flicking past the
+   end of the chapter list scrolls the chapter *behind* the drawer instead,
+   which reads as the page having lost its place when the drawer closes. */
+.sidebar {
+  position: sticky; top: 58px; flex: 0 0 var(--sidebar-w); width: var(--sidebar-w);
+  height: calc(100vh - 58px);
+  height: calc(100dvh - 58px);
+  overflow-y: auto; overscroll-behavior: contain;
+  background: var(--bg-alt); border-right: 1px solid var(--line);
+  padding: 16px 0 60px;
+  padding-bottom: calc(60px + env(safe-area-inset-bottom));
+}
+.sidebar .search-wrap { padding: 0 14px 12px; }
+.sidebar input[type="search"] {
+  width: 100%; font: inherit; font-size: 14px; padding: 8px 11px;
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--panel); color: var(--ink);
+}
+.sidebar input[type="search"]:focus { outline: 2px solid var(--brand); outline-offset: -1px; }
+
+.nav-part {
+  margin: 18px 14px 6px; font-size: 11.5px; font-weight: 700;
+  letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint);
+}
+.nav-part:first-of-type { margin-top: 4px; }
+.sidebar a.nav-link {
+  display: flex; gap: 9px; align-items: baseline;
+  padding: 6px 16px 6px 14px; font-size: 14.5px; color: var(--ink-soft);
+  border-left: 3px solid transparent; line-height: 1.4;
+}
+.sidebar a.nav-link:hover { background: var(--bg-sunken); color: var(--ink); text-decoration: none; }
+.sidebar a.nav-link .num {
+  flex: 0 0 22px; font-family: var(--mono); font-size: 12px; color: var(--ink-faint);
+}
+.sidebar a.nav-link.current {
+  background: var(--brand-soft); color: var(--brand-ink);
+  border-left-color: var(--brand); font-weight: 600;
+}
+.sidebar a.nav-link.current .num { color: var(--brand-ink); }
+.nav-empty { padding: 10px 16px; color: var(--ink-faint); font-size: 14px; font-style: italic; }
+
+/* ---------- main column ---------- */
+/* break-word for the same reason `code` gets overflow-wrap, but for the rest
+   of the prose: the links into the repository are paths too, and
+   `src/Bottega.Infrastructure/Persistence/Configurations` is a 394px word
+   with nowhere to break. Set on the column rather than on `a`, because the
+   next long token to appear here will not necessarily be a link.
+   break-word rather than anywhere: it stops the overflow without also
+   changing the min-content width the tables and flex rows inside are
+   measured against. */
+.main {
+  flex: 1 1 auto; min-width: 0; padding: 30px 40px 90px; max-width: 950px;
+  overflow-wrap: break-word;
+}
+.crumbs { font-size: 13px; color: var(--ink-faint); margin-bottom: 6px; }
+.crumbs span { color: var(--brand); }
+
+h1 { font-size: 34px; line-height: 1.2; margin: .2em 0 .35em; letter-spacing: -.5px; }
+h2 {
+  font-size: 25px; margin: 2.1em 0 .5em; padding-bottom: .25em;
+  border-bottom: 2px solid var(--line); letter-spacing: -.3px;
+}
+h3 { font-size: 19.5px; margin: 1.7em 0 .4em; }
+h4 { font-size: 16.5px; margin: 1.4em 0 .3em; color: var(--ink-soft); }
+p  { margin: .75em 0; }
+ul, ol { padding-left: 1.35em; }
+li { margin: .3em 0; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.4em 0; }
+
+.lede { font-size: 18.5px; color: var(--ink-soft); line-height: 1.6; }
+.subtle { color: var(--ink-faint); font-size: 14.5px; }
+
+/* ==========================================================================
+   Callout boxes
+   ========================================================================== */
+.box {
+  border: 1px solid var(--line); border-left: 4px solid var(--ink-faint);
+  background: var(--bg-alt); border-radius: var(--radius);
+  padding: 14px 18px; margin: 1.3em 0;
+}
+.box > :first-child { margin-top: 0; }
+.box > :last-child  { margin-bottom: 0; }
+.box .box-title {
+  font-weight: 700; font-size: 13.5px; letter-spacing: .04em;
+  text-transform: uppercase; margin-bottom: .45em; display: flex; gap: 8px; align-items: center;
+}
+
+.kid  { border-color: var(--kid-line);  border-left-color: var(--kid);  background: var(--kid-bg); }
+.kid  .box-title { color: var(--kid); }
+.pro  { border-color: var(--pro-line);  border-left-color: var(--pro);  background: var(--pro-bg); }
+.pro  .box-title { color: var(--pro); }
+.trap { border-color: var(--warn-line); border-left-color: var(--warn); background: var(--warn-bg); }
+.trap .box-title { color: var(--warn); }
+.note { border-color: var(--note-line); border-left-color: var(--note); background: var(--note-bg); }
+.note .box-title { color: var(--note); }
+
+/* Golden-rules card */
+.rules {
+  border: 1px solid var(--line-strong); border-top: 4px solid var(--brand);
+  border-radius: var(--radius); background: var(--panel);
+  padding: 18px 22px; margin: 1.6em 0; box-shadow: var(--shadow);
+}
+.rules h3 { margin-top: 0; color: var(--brand); }
+.rules ol { margin: 0; padding-left: 1.2em; }
+.rules li { margin: .5em 0; }
+
+/* Interview Q/A */
+.qa { border-top: 1px solid var(--line); padding-top: 1em; margin-top: 1em; }
+.qa .q { font-weight: 700; color: var(--note); margin: 0 0 .35em; }
+.qa .a { margin: 0; color: var(--ink-soft); }
+
+/* ==========================================================================
+   Code
+   ========================================================================== */
+/* Inline code is mostly identifiers and file paths, and those have no spaces
+   to break at: `src/Bottega.Academy.Api/Endpoints/AuthEndpoints.cs` is one
+   447px word. In running prose there is no scrolling container to catch it
+   the way <pre> catches a code block, so without this it pushes the whole
+   document wider than the viewport and every page on a phone scrolls
+   sideways. `anywhere` rather than `break-word` because it also lets the
+   containing box report a sane min-content width, so the same long token
+   cannot stretch a flex or grid parent either.
+
+   This does not touch code blocks: <pre> is white-space: pre, which offers no
+   soft-wrap opportunities at all, so overflow-wrap has nothing to act on
+   there and the block still scrolls horizontally, which is what you want for
+   code you might copy. Said again on `pre code` below, to keep it deliberate
+   rather than incidental. */
+code {
+  font-family: var(--mono); font-size: .88em;
+  background: var(--bg-sunken); color: var(--brand-ink);
+  padding: .12em .38em; border-radius: 4px; border: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+pre {
+  margin: 1.1em 0; padding: 15px 17px;
+  background: var(--code-bg); color: var(--code-ink);
+  border-radius: var(--radius); overflow-x: auto;
+  font-family: var(--mono); font-size: 13.6px; line-height: 1.62;
+  border: 1px solid var(--line);
+}
+pre code {
+  background: none; border: 0; padding: 0; color: inherit; font-size: inherit;
+  overflow-wrap: normal;
+}
+pre .cm  { color: #7f8ba3; font-style: italic; }  /* comment */
+pre .kw  { color: #c792ea; }                      /* keyword */
+pre .st  { color: #a5d6a7; }                      /* string  */
+pre .ty  { color: #82d3f5; }                      /* type    */
+pre .nu  { color: #f7b267; }                      /* number  */
+pre .out { color: #ffd479; }                      /* console output */
+
+.code-head {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12.5px; font-family: var(--mono); color: var(--ink-faint);
+  background: var(--bg-sunken); border: 1px solid var(--line); border-bottom: 0;
+  border-radius: var(--radius) var(--radius) 0 0; padding: 6px 12px; margin-top: 1.1em;
+}
+.code-head + pre { margin-top: 0; border-radius: 0 0 var(--radius) var(--radius); }
+.copy {
+  margin-left: auto; font: inherit; font-size: 11.5px; cursor: pointer;
+  background: transparent; border: 1px solid var(--line-strong);
+  border-radius: 5px; padding: 1px 7px; color: var(--ink-faint);
+}
+.copy:hover { color: var(--brand); border-color: var(--brand); }
+
+/* "Try it yourself" */
+.tryit {
+  border: 1px dashed var(--brand); border-radius: var(--radius);
+  background: var(--brand-soft); padding: 13px 17px; margin: 1.3em 0;
+}
+.tryit .box-title {
+  color: var(--brand-ink); font-weight: 700; font-size: 13.5px;
+  text-transform: uppercase; letter-spacing: .04em; margin-bottom: .4em;
+}
+.tryit > :last-child { margin-bottom: 0; }
+
+/* ==========================================================================
+   Tables & diagrams
+   ========================================================================== */
+.table-wrap { overflow-x: auto; margin: 1.3em 0; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { border: 1px solid var(--line); padding: 8px 11px; text-align: left; vertical-align: top; }
+th { background: var(--bg-sunken); font-weight: 700; }
+tbody tr:nth-child(even) { background: var(--bg-alt); }
+
+figure { margin: 1.5em 0; }
+figure svg { display: block; width: 100%; height: auto; }
+figcaption { font-size: 13.5px; color: var(--ink-faint); text-align: center; margin-top: .5em; }
+.diagram {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--bg-alt); padding: 16px;
+}
+/* SVG theming hooks — diagrams follow light/dark automatically */
+svg .d-fill   { fill: var(--bg); }
+svg .d-panel  { fill: var(--bg-sunken); }
+svg .d-brand  { fill: var(--brand); }
+svg .d-stroke { stroke: var(--line-strong); fill: none; }
+svg .d-arrow  { stroke: var(--ink-faint); fill: none; }
+svg .d-head   { fill: var(--ink-faint); stroke: none; }
+svg .d-text   { fill: var(--ink); font-family: var(--font); font-size: 13px; }
+svg .d-small  { fill: var(--ink-faint); font-family: var(--font); font-size: 11.5px; }
+svg .d-mono   { fill: var(--ink-soft); font-family: var(--mono); font-size: 12px; }
+svg .d-white  { fill: #fff; font-family: var(--font); font-size: 13px; font-weight: 600; }
+
+/* ==========================================================================
+   Home-page cards
+   ========================================================================== */
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(255px, 1fr)); margin: 1.4em 0; }
+.card {
+  display: block; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--panel); padding: 15px 17px; color: var(--ink);
+}
+.card:hover { border-color: var(--brand); box-shadow: var(--shadow); text-decoration: none; }
+.card .card-num { font-family: var(--mono); font-size: 12px; color: var(--brand); font-weight: 700; }
+.card h3 { margin: .15em 0 .3em; font-size: 17px; }
+.card p { margin: 0; font-size: 14px; color: var(--ink-faint); line-height: 1.5; }
+
+/* ==========================================================================
+   Prev / next pager
+   ========================================================================== */
+.pager {
+  display: flex; justify-content: space-between; gap: 12px; margin-top: 3em;
+  border-top: 1px solid var(--line); padding-top: 1.2em;
+}
+.pager a {
+  flex: 1 1 0; border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 11px 15px; background: var(--panel); color: var(--ink);
+}
+.pager a:hover { border-color: var(--brand); text-decoration: none; }
+.pager .dir { display: block; font-size: 11.5px; text-transform: uppercase;
+              letter-spacing: .07em; color: var(--ink-faint); }
+.pager .ttl { font-weight: 600; }
+.pager .next { text-align: right; }
+
+/* ==========================================================================
+   Kid / Pro display modes
+   ========================================================================== */
+body[data-mode="kid"] .pro { display: none; }
+body[data-mode="pro"] .kid { display: none; }
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+/* The bar collapses in stages, and each threshold is the width at which the
+   things still in it stop fitting — measured with every control present,
+   including the due-cards chip, which only appears once somebody has cards
+   due and is therefore the easiest one to forget. Measured requirements, to
+   the nearest few pixels because the chips resize with their numbers: the
+   full bar needs ~1086px, without the tagline ~852px, and without the
+   wordmark and the note button ~638px. Each threshold sits well above the
+   number it protects, so the bar is never merely exactly wide enough. */
+@media (max-width: 1160px) {
+  .brand-sub { display: none; }
+}
+@media (max-width: 980px) {
+  .hamburger { display: inline-block; }
+
+  /* visibility, not just the transform. A drawer moved off-screen with
+     translateX is still *visible* as far as the browser is concerned: its 47
+     chapter links stay in the tab order and in the accessibility tree, so a
+     keyboard user tabbing off the hamburger falls into a menu they cannot see,
+     and VoiceOver reads the whole course index before reaching the chapter.
+     visibility:hidden takes the subtree out of both, and — unlike display:none
+     — it still animates.
+
+     The transition delay is what keeps the slide-out visible: visibility is
+     not an interpolatable property, so it flips at whichever end of the
+     duration the timing puts it. Closing, it must wait out the .18s so the
+     panel is seen leaving; opening, it must flip immediately or the panel
+     slides in invisible and appears at the end. Hence the delay on the closed
+     rule and the 0s override on the open one. */
+  .sidebar {
+    position: fixed; left: 0; top: 58px; z-index: 40;
+    transform: translateX(-100%); visibility: hidden;
+    transition: transform .18s ease, visibility 0s linear .18s;
+    box-shadow: var(--shadow);
+    padding-left: env(safe-area-inset-left);
+  }
+  body[data-nav="open"] .sidebar {
+    transform: translateX(0); visibility: visible;
+    transition: transform .18s ease, visibility 0s linear 0s;
+  }
+
+  /* The scrim does three jobs, and the third is the one that is easy to miss:
+     it dims the page so the drawer reads as being on top of it, it gives the
+     tap-anywhere-to-close gesture something to receive the tap on, and its
+     touch-action stops that same touch from scrolling the article underneath.
+     iOS honours overflow:hidden on <body> unreliably, so the overlay is what
+     actually holds the page still — which is why it covers the full viewport
+     rather than only the strip beside the drawer. */
+  .nav-scrim {
+    position: fixed; inset: 0; z-index: 39;
+    background: rgba(8, 10, 18, .45);
+    opacity: 0; visibility: hidden;
+    transition: opacity .18s ease, visibility 0s linear .18s;
+    touch-action: none;
+  }
+  body[data-nav="open"] .nav-scrim {
+    opacity: 1; visibility: visible;
+    transition: opacity .18s ease, visibility 0s linear 0s;
+  }
+  body[data-nav="open"] { overflow: hidden; }
+
+  .main { padding: 22px 20px 80px; }
+  h1 { font-size: 28px; }
+  h2 { font-size: 22px; }
+}
+/* Above the breakpoint the sidebar is a column of the layout, not a drawer.
+   data-nav can still say "open" — it is left over from a phone-width visit in
+   the same tab — so the scrim is held down here rather than relying on the
+   attribute being tidied up. */
+.nav-scrim { display: none; }
+@media (max-width: 980px) { .nav-scrim { display: block; } }
+/* The brand drops its wordmark and keeps the tile, which is still the link
+   home. Paired with .btn-note in learn.css, at the same width. */
+@media (max-width: 940px) {
+  .brand-text { display: none; }
+}
+/* Below this the bar carries: menu, home, the mode switch, theme, account.
+   At 375px those alone are most of the width, so the spacing tightens too.
+   The rest of the collapse is in learn.css, next to the controls that layer
+   adds. */
+@media (max-width: 760px) {
+  /* Long-hand, not the `padding` shorthand: that would reset the safe-area
+     padding set on .topbar above, and a notched phone in landscape is
+     exactly when this breakpoint is in force. */
+  .topbar {
+    gap: 10px;
+    padding-left:  max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+}
+@media (max-width: 520px) {
+  .segmented button { padding: 6px 8px; font-size: 12px; }
+  .pager { flex-direction: column; }
+}
+/* 360px and 320px phones. The mode switch is the widest thing left and the
+   one worth keeping legible, so it tightens rather than disappears. */
+@media (max-width: 380px) {
+  .topbar {
+    gap: 8px;
+    padding-left:  max(10px, env(safe-area-inset-left));
+    padding-right: max(10px, env(safe-area-inset-right));
+  }
+  .segmented button { padding: 5px 6px; font-size: 11.5px; }
+}
+
+/* ==========================================================================
+   Touch
+   --------------------------------------------------------------------------
+   Everything below is keyed on `pointer: coarse` — the primary pointer is a
+   finger — rather than on a width. The two are not the same question and this
+   is the one that matters here: a 1024px tablet is a touch device and needs
+   the bigger targets, while a 360px browser window on a laptop is still driven
+   by a mouse and looks wrong with them. Nothing in this section is reachable
+   from a desktop pointer, so the density of the design there is unchanged.
+
+   The floor is 44px, which is Apple's figure and close enough to Google's 48
+   that meeting it satisfies both. Height is set with min-height and padding
+   rather than height, so a control whose label wraps grows instead of
+   clipping.
+   ========================================================================== */
+@media (pointer: coarse) {
+  /* Bar controls. 36px and 29px measured; both are inside the range where a
+     tap that looks like a hit lands on the neighbour instead.
+
+     HEIGHT ONLY. Not the shorthand, and not one pixel of horizontal padding:
+     the top bar is a single non-wrapping row on a fixed 58px, and the comment
+     above the responsive section is a budget - the widths it names are what
+     the bar's contents actually measure, and the breakpoints below 520px earn
+     their room by *tightening* this padding, down to 6px on the mode switch at
+     380px. Growing it here overrides those, and three buttons at +3px a side
+     plus three segments at +7px came to 60px, which is precisely how much a
+     320px phone then scrolled sideways on every page of the site.
+
+     min-height with the padding left alone gives the same 44px, because the
+     flex centring below grows the box instead of the text. */
+  .btn {
+    min-height: 44px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .segmented button { min-height: 44px; }
+  .topbar .brand { min-height: 44px; }
+
+  /* Chapter list. The links are the most-tapped thing on the site on a phone
+     — the drawer is the only way between chapters — and at 33px they were the
+     smallest repeated target on the page. The extra height comes out of the
+     drawer's scroll length, not out of the page. */
+  .sidebar a.nav-link { min-height: 44px; padding-top: 10px; padding-bottom: 10px; align-items: center; }
+
+  /* 16px is not a taste decision. Mobile Safari zooms the viewport in on any
+     form field whose text is smaller than 16px when it takes focus, and it
+     does not zoom back out when the field is left — so one tap on the chapter
+     search leaves the reader on a page they now have to pinch to fit for the
+     rest of the session. Every field on the site is brought to 16px for that
+     reason; see learn.css for the rest of them. */
+  .sidebar input[type="search"] { font-size: 16px; padding: 11px 12px; }
+
+  /* The copy button measured 43x23. It sits in the code header beside the
+     filename, so it cannot simply grow without pushing that around: the
+     padding grows it to a comfortable width and the ::after pseudo-element
+     extends the *hit area* vertically over the header's own padding, which is
+     empty space that had no other job. */
+  .code-head { padding: 8px 12px; }
+  .copy { position: relative; padding: 6px 12px; font-size: 12.5px; }
+  .copy::after { content: ""; position: absolute; inset: -11px -6px; }
+
+  /* Cards and pager rows are big enough already; they only needed the flash
+     turned off, because the anchor being tapped is the whole block and the
+     grey rectangle covers it entirely. :active replaces it with the same
+     highlight the mouse gets. */
+  .card, .pager a { -webkit-tap-highlight-color: transparent; }
+  .card:active, .pager a:active { border-color: var(--brand); }
+}
+
+/* Hover is a lie on a touch screen. There is no hover state to enter or leave,
+   so the browser fakes one on tap and then leaves it applied to the last thing
+   touched until something else is tapped — the theme button stays purple, the
+   chapter you came from stays highlighted in the drawer, and both read as a
+   selection that was never made.
+
+   `hover: none` is the direct question — can the primary pointer hover at all
+   — and the resting values are restated here rather than reset with `initial`,
+   which would resolve these borders to currentColor and repaint them in the
+   text colour. Each pair below is the element's own resting declaration,
+   copied. */
+@media (hover: none) {
+  .btn:hover { border-color: var(--line-strong); color: var(--ink-soft); }
+  .btn:active { border-color: var(--brand); color: var(--brand); }
+
+  .card:hover { border-color: var(--line); box-shadow: none; }
+  .pager a:hover { border-color: var(--line); }
+
+  .sidebar a.nav-link:hover { background: transparent; color: var(--ink-soft); }
+  .sidebar a.nav-link:active { background: var(--bg-sunken); color: var(--ink); }
+  /* The current chapter is a state, not a hover, and must survive the reset. */
+  .sidebar a.nav-link.current,
+  .sidebar a.nav-link.current:hover { background: var(--brand-soft); color: var(--brand-ink); }
+
+  .copy:hover { color: var(--ink-faint); border-color: var(--line-strong); }
+  .copy:active { color: var(--brand); border-color: var(--brand); }
+}
+
+@media print {
+  .topbar, .sidebar, .pager, .copy, .nav-scrim { display: none !important; }
+  .main { max-width: none; padding: 0; }
+  body[data-mode] .kid, body[data-mode] .pro { display: block !important; }
+}
+
+/* ---------------------------------------------------------------- free-course framing
+   Landing page only. The same four assurances the hub makes, repeated here because most
+   visitors arrive from a search engine straight into a course and never see the hub.
+
+   Every colour is a token this stylesheet already defines, so each subject keeps its own
+   brand. The two-level fallbacks are for the SQL course, whose palette names the accent
+   --accent rather than --brand; var(--brand, var(--accent)) resolves correctly in both
+   without a second copy of this block.
+   ------------------------------------------------------------------------------------ */
+.free-strip {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+  margin: 18px 0 24px; padding: 13px 16px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.free-badge {
+  font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  padding: 4px 10px; border-radius: 999px;
+  background: var(--brand-soft, var(--accent-soft));
+  color: var(--brand-ink, var(--accent-ink));
+  border: 1px solid var(--brand, var(--accent));
+}
+.free-item {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 14px; color: var(--ink-soft);
+}
+.free-item svg { color: var(--pro); flex: none; }
+.free-hub {
+  margin-left: auto; font-size: 13.5px; font-weight: 600; white-space: nowrap;
+  color: var(--brand-ink, var(--accent-ink)); text-decoration: none;
+}
+.free-hub:hover { text-decoration: underline; }
+@media (max-width: 680px) {
+  .free-hub { margin-left: 0; }
+}

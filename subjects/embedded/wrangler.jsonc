@@ -1,0 +1,63 @@
+{
+  // Centralina Academy -- the embedded C/C++ site, on Cloudflare Workers static assets.
+  //
+  // Almost assets-only: every request that matches a file is served straight from
+  // ./site, and worker.mjs runs only for the handful that match nothing -- really
+  // just "/". Deploy with `npx wrangler deploy` from this directory.
+  //
+  // NOT YET DEPLOYED, AND NOT IN THE CI DEPLOY MATRIX. The gate runs on this
+  // subject on every push, but publishing is a separate decision: most of its
+  // chapters are still labelled placeholders, and the route below would create
+  // the embedded.testdemo.it DNS record the first time this runs. See
+  // docs/BUILD-STATUS-embedded.md for what is written and what is not.
+  //
+  // This subject is site-only by decision, not by omission: BUILD-STATUS records
+  // that the deep course and the accounts service were deliberately left
+  // unwritten. So there is nothing here that Workers cannot host -- the site is
+  // the whole thing.
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "centralina-academy",
+  "compatibility_date": "2026-09-08",
+  // The smallest possible Worker, so that "/" serves index.html while
+  // html_handling stays "none". worker.mjs explains why both are needed.
+  "main": "worker.mjs",
+  // Served from a custom domain on testdemo.it, which is already a Cloudflare zone.
+  // custom_domain creates the DNS record on deploy, so there is nothing to add by
+  // hand — and it means no workers.dev subdomain is needed at all.
+  "routes": [
+    { "pattern": "embedded.testdemo.it", "custom_domain": true }
+  ],
+  "workers_dev": false,
+  "assets": {
+    "directory": "./site",
+    // How the Worker reaches the asset server.
+    "binding": "ASSETS",
+    // "none" — every path maps 1:1 to a file, and nothing is redirected.
+    //
+    // NOT "auto-trailing-slash", which was here and was wrong. It 307s /notes.html
+    // to /notes, and this site has a service worker. A redirected response cannot be
+    // stored in a Cache, so cache.add("notes.html") rejects and the page is never
+    // precached; the navigation then falls through to a fetch whose redirected
+    // response the browser refuses for a navigation, and the user gets a bare
+    // ERR_FAILED with nothing in the console.
+    //
+    // It never shows up locally: python -m http.server serves /notes.html as 200.
+    // Every internal link in this site is an explicit .html, because the site must
+    // also open from file:// — so there is nothing for the prettifier to gain here
+    // and a whole class of failure for it to cause.
+    "html_handling": "none",
+    // "none", NOT "404-page", even though site/404.html now exists.
+    //
+    // The two are not interchangeable. With "404-page" the asset layer answers a
+    // NAVIGATION miss by itself and the Worker is never invoked — which also means
+    // "/" never reaches worker.mjs's index.html rewrite, so the home page breaks
+    // while curl and fetch() (which are not navigations) keep looking healthy.
+    // "none" lets every miss fall through to worker.mjs, which serves site/404.html
+    // itself and keeps a truthful 404 status: a branded page returned as 200 is a
+    // soft 404, which search engines index and which hides broken links from
+    // anyone testing with curl.
+    //
+    // And never a 401: the tutorial is public, every page and asset anonymous.
+    "not_found_handling": "none"
+  }
+}
