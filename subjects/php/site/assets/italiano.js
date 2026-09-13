@@ -27,9 +27,9 @@ window.IT_PHRASES = [
   {
     group: "Opening the call",
     items: [
-      { it: "Buongiorno, sono Kristi Komini. Grazie per il tempo che mi dedica.",
-        en: "Good morning, I'm Kristi Komini. Thank you for your time.",
-        note: "Use Lei (formal) until they move to tu. In smaller software houses they usually move within a minute; follow, do not lead." },
+      { it: "Buongiorno, sono Mario Rossi. Grazie per il tempo che mi dedica.",
+        en: "Good morning, I'm Mario Rossi. Thank you for your time.",
+        note: "Mario Rossi is the placeholder — say your own name. Use Lei (formal) until they move to tu. In smaller software houses they usually move within a minute; follow, do not lead." },
       { it: "Mi fa piacere. Preferisce che parliamo in italiano o in inglese?",
         en: "Happy to be here. Would you prefer we speak in Italian or English?",
         note: "Only ask if the advert was in English. Asking when the advert was Italian reads as low confidence." },
@@ -167,6 +167,13 @@ window.IT_CHAPTERS = {
     ],
     keep: ["SOLID", "dependency injection", "container", "pattern", "repository"],
   },
+  "07-errors-and-async": {
+    say: [
+      "Le eccezioni le gestisco al bordo: loggo con un id di correlazione e all'utente mostro un messaggio pulito.",
+      "In PHP 8 Error ed Exception sono fratelli, quindi al confine catturo Throwable, non solo Exception.",
+    ],
+    keep: ["exception", "throw", "catch", "Throwable", "log", "stack trace", "queue"],
+  },
   "09-databases-and-mysql": {
     say: [
       "Uso sempre utf8mb4, perché utf8 in MySQL non è UTF-8 completo e rompe le emoji.",
@@ -202,6 +209,13 @@ window.IT_CHAPTERS = {
     ],
     keep: ["endpoint", "status code", "middleware", "header", "payload", "REST"],
   },
+  "14-building-an-api": {
+    say: [
+      "Valido al bordo e trasformo la richiesta in un oggetto tipizzato: da lì in poi i dati sono affidabili.",
+      "In risposta restituisco una resource, non il model: il model è una struttura interna, la risposta è un contratto.",
+    ],
+    keep: ["API", "endpoint", "payload", "JSON", "resource", "status code", "rate limiting"],
+  },
   "15-api-security": {
     say: [
       "Le prepared statement non sono un'ottimizzazione: sono la difesa contro la SQL injection.",
@@ -215,6 +229,20 @@ window.IT_CHAPTERS = {
       "I middleware sono una pipeline: l'ordine in cui li registri è comportamento, non stile.",
     ],
     keep: ["container", "middleware", "service provider", "facade", "routing", "kernel"],
+  },
+  "16b-legacy-php": {
+    say: [
+      "Su un progetto legacy la prima settimana non tocco niente: lo faccio girare in locale, lo metto sotto Git e scrivo qualche test di caratterizzazione.",
+      "Il rifacimento da zero non lo propongo quasi mai: sostituisco un pezzo alla volta lasciando in piedi il resto.",
+    ],
+    keep: ["legacy", "refactoring", "test", "Git", "baseline", "deploy"],
+  },
+  "19-server-rendered-ui": {
+    say: [
+      "In Blade uso le doppie graffe, che fanno l'escape da sole; la sintassi con i punti esclamativi la controllo una per una.",
+      "Con Livewire resto in PHP, ma ogni interazione è una chiamata al server: va benissimo per un gestionale, meno per un'interfaccia molto reattiva.",
+    ],
+    keep: ["Blade", "Twig", "template", "escape", "Livewire", "Inertia", "component"],
   },
   "20-caching": {
     say: [
@@ -230,12 +258,26 @@ window.IT_CHAPTERS = {
     ],
     keep: ["queue", "job", "worker", "retry", "failed job", "idempotente", "Horizon"],
   },
+  "23-architecture": {
+    say: [
+      "Tengo le dipendenze verso l'interno: il dominio non deve conoscere il framework.",
+      "Non metto architettura dove non serve: su un CRUD di tre mesi bastano dei value object e un service layer chiaro.",
+    ],
+    keep: ["domain", "layer", "value object", "service", "repository", "CQRS", "DDD"],
+  },
   "24-testing": {
     say: [
       "Scrivo test di integrazione sul database reale: un mock del database non prova quasi niente.",
       "La copertura dice quali righe sono state eseguite, non se il comportamento è corretto.",
     ],
     keep: ["test", "PHPUnit", "Pest", "mock", "stub", "coverage", "fixture"],
+  },
+  "25b-production-support": {
+    say: [
+      "Quando arriva una segnalazione la prendo in carico subito e do un riscontro, anche solo per dire che la sto guardando.",
+      "Prima chiedo cosa è cambiato, poi riproduco il problema, poi scrivo il test che fallisce: in quest'ordine.",
+    ],
+    keep: ["log", "rollback", "hotfix", "deploy", "post-mortem", "alert"],
   },
   "26-git": {
     say: [
@@ -244,12 +286,33 @@ window.IT_CHAPTERS = {
     ],
     keep: ["branch", "merge", "rebase", "commit", "pull request", "conflict", "push"],
   },
+  "27-tooling-and-xdebug": {
+    say: [
+      "Per il debug uso Xdebug con i breakpoint, non i var_dump: sui bug veri fa risparmiare ore.",
+      "Tengo PHPStan con una baseline: il debito vecchio resta congelato e il codice nuovo deve passare.",
+    ],
+    keep: ["debug", "breakpoint", "Xdebug", "PHPStan", "baseline", "profiler", "IDE"],
+  },
   "28-containers-and-composer": {
     say: [
       "Il composer.lock va committato: è quello che garantisce la stessa versione in produzione.",
       "Uso un build multi-stage per non portarmi le dipendenze di sviluppo nell'immagine finale.",
     ],
     keep: ["Docker", "container", "image", "build", "Compose", "Composer", "lock file", "autoload"],
+  },
+  "29-cloud-hosting": {
+    say: [
+      "In produzione il document root punta su public/ e APP_DEBUG è a false: sono le due cose che controllo per prime.",
+      "Faccio deploy atomici con un symlink, così il rollback è ripuntare il link alla release precedente.",
+    ],
+    keep: ["deploy", "release", "rollback", "symlink", "document root", "backup", "environment"],
+  },
+  "30-ci-cd": {
+    say: [
+      "La pipeline gira in ordine di costo: prima lint e analisi statica, poi i test, e il deploy solo se passa tutto.",
+      "Un test che fallisce a intermittenza lo sistemo lo stesso giorno, altrimenti nessuno guarda più la pipeline.",
+    ],
+    keep: ["pipeline", "CI", "build", "deploy", "test", "merge request", "artifact"],
   },
   "31-wordpress": {
     say: [

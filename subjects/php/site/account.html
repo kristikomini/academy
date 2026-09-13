@@ -67,9 +67,13 @@
       <p>
         On top of that sits ordinary optimistic concurrency: the browser sends back the
         <code>baseRevision</code> it read, and a write built on a revision the server has since
-        moved past is rejected rather than applied. That is the same conflict problem as EF
-        Core's <code>DbUpdateConcurrencyException</code>, and the same answer &mdash;
-        <a href="chapters/12-orm-in-depth.html">12 &middot; The ORM in depth</a>.
+        moved past is rejected rather than applied. That is the same conflict problem
+        Doctrine raises as <code>OptimisticLockException</code> from a <code>#[Version]</code>
+        column, and the same answer &mdash;
+        <a href="chapters/11-indexes-and-transactions.html">11 &middot; Indexes, EXPLAIN,
+        transactions and deadlocks</a> has why you never hold a lock across user think-time,
+        and <a href="chapters/12-orm-in-depth.html">12 &middot; The ORM in depth</a> has the
+        ORM's side of it.
       </p>
     </div>
 
@@ -87,12 +91,13 @@
         cheat &mdash; but anyone can edit their own local profile and sync it. It is a nudge.
       </p>
       <p>
-        <strong>One instance only.</strong> The schema is created with
-        <code>EnsureCreatedAsync()</code>, not migrations, which is the right trade for a
-        single-instance tutorial service and the wrong one almost anywhere else. Two instances
-        starting at once is a race, and the runtime account would have to hold
-        schema-altering rights it should never have &mdash;
-        <a href="chapters/30-ci-cd.html">30 &middot; CI/CD pipelines</a>.
+        <strong>One instance only.</strong> The schema is applied at boot from a single
+        <code>schema.sql</code> of <code>CREATE TABLE IF NOT EXISTS</code> statements, not by
+        a migration tool, which is the right trade for a single-instance tutorial service and
+        the wrong one almost anywhere else. Two instances starting at once is a race, the
+        MySQL account the application runs as would have to hold <code>CREATE</code> rights it
+        should never have, and there is no way to express a change to an existing table
+        &mdash; <a href="chapters/30-ci-cd.html">30 &middot; CI/CD pipelines</a>.
       </p>
     </div>
 

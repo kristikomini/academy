@@ -48,7 +48,7 @@ self.SUBJECT = {
 
   /* Bump to invalidate the offline cache. sw.js builds its cache name as
      `key + "-v" + cacheVersion`. CHANGE THIS ON EVERY CONTENT CHANGE. */
-  cacheVersion: 14,
+  cacheVersion: 15,
 
   /* Display strings. `officina` = workshop, and specifically the kind with
      things moving through it — which is the mental model this subject is

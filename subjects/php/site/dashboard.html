@@ -308,8 +308,8 @@
         "<p>The leaderboard needs an account, because it is the one thing on this site that " +
         "involves anybody else. Everything else works signed out and stays in this browser.</p>" +
         '<p class="subtle">Use the button in the top bar to sign in, or run the accounts service ' +
-        "yourself: <code>dotnet run --project src/Bottega.Academy.Api</code>, then open the " +
-        "address it prints.</p></div>";
+        "yourself: <code>" + ((self.SUBJECT || {}).apiCommand || "see the repository README") +
+        "</code>, then open the address it prints.</p></div>";
       return;
     }
 

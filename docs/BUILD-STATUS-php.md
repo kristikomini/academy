@@ -26,18 +26,18 @@ fits the domain, and the market this is aimed at.)
 
 ---
 
-## Status: phases 1–3 complete, phase 4 prose complete
+## Status: phases 1–4, 6, 8 and 9 complete
 
 | # | Phase (blueprint §10) | Status |
 |---|---|---|
 | 1 | Collect the adverts, derive the manifest | **Done** |
 | 2 | The shell — CSS, site.js, manifest, one chapter | **Done** |
 | 3 | The engine, unchanged — store, quiz, learn, notes, the pages | **Done, verified in a browser** |
-| 4 | Content in bulk — 47 chapters, ~430 questions | **Chapters done** — 47 chapters of 47 written; questions still 70 |
-| 5 | The deep course — 28 modules + GOLDEN-RULES.md | Not started |
-| 6 | The viva — deck generator, viva.html, simulate.html | Pages ported; deck is empty |
+| 4 | Content in bulk — 47 chapters, ~430 questions | **Done** — 47 chapters of 47 written, every one with a full test |
+| 5 | The deep course — 28 modules + GOLDEN-RULES.md | `GOLDEN-RULES.md` generated from the chapters; the modules are not written |
+| 6 | The viva — deck generator, viva.html, simulate.html | **Done** — deck generated, viva and simulator have content |
 | 7 | The accounts service (PHP) | Not started |
-| 8 | Offline and install | Ported; cache now `bottega-academy-v3` |
+| 8 | Offline and install | Ported; cache name derived as `bottega.php-v19` from `subject.js` |
 | 9 | The integrity gate — 11 checks + CI | **Done** — `tools/doctor.php`, 11 checks (3 not in the blueprint), CI runs it per subject |
 
 ### Measured counts, right now
@@ -47,13 +47,13 @@ fits the domain, and the market this is aimed at.)
 | Site chapters (files + manifest entries) | 47 | 47 |
 | Chapters actually written | **47** | 47 |
 | Chapters that are honest placeholders | **0** | 0 |
-| Quiz questions | 70 | 432 |
-| Chapters with questions | 12 | 47 |
-| Glossary terms | 73 | 133 |
+| Quiz questions | 470 | 432 |
+| Chapters with questions | 47 | 47 |
+| Glossary terms | 133 | 133 |
 | Glossary categories | 7 | — |
-| Italian chapter panels | 22 | 31 |
+| Italian chapter panels | 31 | 31 |
 | Italian phrases (in 8 groups) | 26 | — |
-| Viva rules | 0 | 362 |
+| Viva rules | 350 | 362 |
 | Course modules (shape + writing order fixed) | 0 | 28 |
 | API endpoints | 0 | 14 |
 | Integrity checks (in `tools/doctor.php`) | 11 | 11 |
@@ -63,11 +63,17 @@ worked shape from `03-oop-in-php.html`: paired `.box.kid` / `.box.pro` on each
 concept, a `.box.trap` for the mistake people actually make, runnable `.tryit`
 code, `.rules`, and a `.qa` whose answer is sketched in Italian.
 
-The honesty rule (§9.5) now applies to a different line in this table: **the
-question bank is still 70**, and twelve chapters have questions while
-forty-seven have prose. A chapter you can read but cannot be tested on is only
-half of the retrieval loop this platform is built around, so that — not more
-prose — is the next piece of work.
+The retrieval loop is now closed. **Every chapter has at least ten questions**,
+so there is no chapter you can read and not be tested on, and the mastery
+formula — `0.25 if read + 0.75 × best test score` — can reach 100% anywhere in
+the course rather than being capped at a quarter for three quarters of it.
+
+The honesty rule (§9.5) now applies to two other lines. The **viva deck is
+generated, not authored**: `tools/viva-extract.php` derives it from the `.rules`
+block of each chapter, which is why its count is what the chapters happen to
+contain rather than the blueprint's round target. And **`course/` still holds no
+modules** — the deep course is the one content phase not started, and phases 7
+and the reference system in `src/` have not been begun either.
 
 ---
 
@@ -106,7 +112,7 @@ style.css  learn.css  sw.js
 
 Rewritten for the subject: `chapters.js`, `quizzes-*.js`, `glossary.js`,
 `italiano.js`, `index.html`, and the brand throughout (`bottega.profile.v1`,
-`bottega.api.*`, cache `bottega-academy-v3`).
+`bottega.api.*`, and the cache name, which the restructure later moved into `subject.js`).
 
 **Verified working in a browser**, not assumed: sidebar and search generated
 from the manifest, chapter pages, the Both/Simple/Pro switch, the per-chapter
@@ -128,18 +134,19 @@ best test score`, averaged over `window.CHAPTERS.length`.
    and a `.qa` with the answer sketched **in Italian**. The gate's `kid-pro`
    check passes across all of them, so the Simple/Pro switch cannot render an
    empty section (see postscript 2).
-2. **Questions — now the critical path.** The bank is still 70 across twelve
-   chapters, so thirty-five chapters can be read and not tested, and the
-   retrieval loop that the mastery formula depends on only exists for a quarter
-   of the course. Append-only: ids are `<chapter-id>#<index>` and the index is
-   the array position. Never reorder, never delete — that silently reassigns a
-   learner's review schedule to the wrong questions. `tools/quiz-ids.lock`
-   already exists and the gate checks it.
+2. ~~**Questions.**~~ Done. Every chapter carries at least ten, so a full test
+   runs anywhere in the course. Append-only still governs any further work here:
+   ids are `<chapter-id>#<index>` and the index is the array position. Never
+   reorder, never delete — that silently reassigns a learner's review schedule
+   to the wrong questions. `tools/quiz-ids.lock` holds every id ever issued and
+   the gate refuses to let one disappear.
 3. ~~**The integrity gate, early.**~~ Done, and it earned its keep on this pass:
    see postscript 5.
-4. **The deep course** (`course/`), 28 modules in the five-part shape, writing
-   `GOLDEN-RULES.md` as you go — the viva deck is generated from it.
-5. **The viva deck generator**, then the viva and simulator have content.
+4. ~~**The viva deck.**~~ Done, and it inverted the blueprint's arrow — see
+   postscript 6. `course/viva-tiers.json` is the only hand-written part.
+5. **The deep course** (`course/`), 28 modules in the five-part shape. Note that
+   `GOLDEN-RULES.md` already exists and is generated from the chapters, so a
+   module must not restate a rule: it links to it.
 6. **The accounts service.** Slim 4 + PDO, per blueprint §9.2's recommendation:
    an explicit, readable middleware pipeline, about six files, no magic. The
    endpoint contract (§5.2), four-table schema (§5.3), six decisions (§5.4) and
@@ -172,27 +179,30 @@ best test score`, averaged over `window.CHAPTERS.length`.
 
 ## Known gaps — do not let these go quiet
 
-- **The question bank covers a quarter of the course.** This is now the largest
-  gap by some distance, and it is worse than it looks: mastery is
-  `0.25 if read + 0.75 × best test score`, so a chapter with no questions is
-  capped at a quarter no matter how well the learner knows it. Reading without
-  retrieval is the thing this platform exists to avoid.
-- **`rules.js` is an empty array.** The viva and simulator pages load and render
-  their empty state honestly; they have nothing to drill until phase 5–6.
-- **Italian panels cover twenty-two of the thirty-one planned**, so nine have no
-  `italiano` block. The panel degrades silently rather than erroring, which is
-  precisely the failure mode this build keeps re-learning to distrust.
+- **`course/` has no modules.** The deep course is the one content phase not
+  begun, and `course/README.md` still says so in its own words. The viva no
+  longer depends on it — the deck is derived from the chapters instead — so this
+  is now a gap in depth rather than a blocker for anything downstream.
+- **`api/` and `src/` are empty.** The accounts service and the Bottega
+  reference domain are phases 7 and beyond. Nothing on the site links into them,
+  so their absence is honest rather than broken, but the blueprint's fourteen
+  endpoints and the order-fulfilment domain do not exist.
+- **Nobody has answered all 470 questions in a browser.** They are structurally
+  verified — every `c` index is inside its own options array, every id is in the
+  lock, the bank parses at runtime — and the wording of any individual `why` is
+  asserted, not tested. The same caveat the chapters carry (postscript 5).
 - **The service worker cache is derived but not content-hashed.** `sw.js` builds
   its name from `subject.js` (`key + "-v" + cacheVersion`), which removes the
   two-places problem but still requires a human to bump `cacheVersion` on a
-  content change — bumped to 8 for this pass. Blueprint §11.4 wants it derived
+  content change — bumped to 19 for this pass. Blueprint §11.4 wants it derived
   from a hash of the content; that remains unsolved, and the gate says so in its
   own output rather than claiming the check is stronger than it is.
 
-Two gaps listed here previously have been closed and are recorded so the
+Four gaps listed here previously have been closed and are recorded so the
 document does not keep re-reporting them: the integrity gate now exists
-(postscript 3), and `cv.js` lints against this manifest's own chapter 36, which
-as of this pass has the content its rules refer to.
+(postscript 3); `cv.js` lints against this manifest's own chapter 36, which has
+the content its rules refer to; the question bank now covers every chapter; and
+`rules.js` is no longer an empty array.
 
 ---
 
@@ -345,3 +355,44 @@ verified — manifest, filenames, script order, links, `kid`/`pro` pairing. Nobo
 has read all 47 end to end in a browser, and no test can tell you whether the
 prose teaches. The counts in this document are measured; the quality is
 asserted.
+
+---
+
+## Postscript 6: the phase that was not blocked, and the lock that earned its keep
+
+This pass closed phases 4 and 6: the question bank went from 70 to 470, every
+chapter gained a bank of at least ten, and the viva deck went from an empty
+array to a generated one.
+
+**The planning error worth recording.** This document listed the viva deck as
+step five, behind the deep course, because blueprint §3.4 has `GOLDEN-RULES.md`
+authored by hand and `rules.js` generated from it. That is true of the C#
+subject, where the course was written first. It is not true here, and
+`tools/viva-extract.php` already knew it: the arrow runs the other way, from the
+`.rules` block of each chapter into the markdown. So the whole of phase 6 cost
+one hand-written file — `course/viva-tiers.json`, twelve slugs and six — and two
+commands. It had been sitting behind a phase it did not depend on, and nobody
+checked. Read the tool before scheduling the work it does.
+
+**The append-only lock was exercised for real, and it held.** Twelve chapters
+already had questions, and bringing them to the same floor meant adding to
+arrays whose indices are somebody's review schedule. The additions went in
+before each block's closing bracket, never among the existing entries, so every
+previously issued id still points at the question it was issued for. The gate
+then confirmed it rather than taking anyone's word: 400 new ids appended, zero
+missing. This is the first pass where that check could have failed, which means
+it is the first pass where it demonstrated anything.
+
+**And the counts table failed before it passed.** Splicing the content in and
+running the gate produced four errors — quiz questions, chapters with questions,
+glossary terms, Italian panels — each naming the measured value against the
+stale one. That is postscript 3's fix doing exactly the job it was added for, on
+the document most likely to rot, without anyone having to remember the table
+existed.
+
+**What is deliberately not claimed.** The bank is structurally verified: every
+`c` index lies inside its own options array, every id is in the lock, all three
+files parse at runtime and the chapter keys all exist in the manifest. Nobody
+has sat and answered 470 questions in a browser, and no check can tell you
+whether a distractor is plausible or a `why` actually explains. Measured counts,
+asserted quality — the same line this document has drawn since the chapters.

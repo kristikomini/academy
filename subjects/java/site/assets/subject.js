@@ -38,7 +38,7 @@ self.SUBJECT = {
      and activate() delete the old one. CHANGE THIS ON EVERY CONTENT CHANGE —
      forget, and returning visitors keep reading last month's chapters with no
      error anywhere. */
-  cacheVersion: 17,
+  cacheVersion: 18,
 
   /* Display strings. `fonderia` = foundry: where things are cast to run for
      twenty years, which is the Java market in this region. */

@@ -1,0 +1,53 @@
+{
+  "_comment": [
+    "Which golden rules are promoted out of their chapter and into the two headline",
+    "tiers of the viva deck. Read by tools/viva-extract.php; the order here is the",
+    "order they appear in GOLDEN-RULES.md and in the deck, so it is rehearsal order,",
+    "not chapter order.",
+    "",
+    "This is the one editorial judgement in an otherwise generated pipeline. The twelve",
+    "run language first, then the two things every PHP interview in this market",
+    "actually tests: whether you can be trusted with user input, and whether you know",
+    "why the page is slow. Nothing about frameworks appears until the end, because a",
+    "candidate who can explain injection and the N+1 gets asked about Laravel next,",
+    "and a candidate who can only explain Laravel does not.",
+    "",
+    "Note the shape of this list against the Kafka one. There the questions that decide",
+    "the interview are model questions, because no advert asks for Kafka alone. Here",
+    "the adverts ask for PHP directly and at length, so the twelve are the concrete",
+    "claims a technical round opens with — and half of them are security or the",
+    "database, which is where these interviews actually spend their time.",
+    "",
+    "The senior six are the operating rules. They are not harder; they are the ones you",
+    "only know from having deployed something and watched it misbehave, which is",
+    "exactly the gap between the CV and the second interview. The last of them is the",
+    "gestionale rule, kept because in Emilia-Romagna it is not a niche.",
+    "",
+    "Every entry must be a slug that tools/viva-extract.php --candidates prints. A slug",
+    "that no longer exists is reported as a WARNING rather than silently dropped."
+  ],
+
+  "twelve": [
+    "php-8-casts-the-number-to-string",
+    "declare-strict-types-1-in-every-file",
+    "arrays-by-value-objects-by-handle",
+    "interface-for-a-contract-abstract-class-for-shared-state",
+    "money-is-never-a-float",
+    "prepared-statements-because-values-never-reach-the-parser",
+    "identifiers-cannot-be-bound",
+    "escape-on-output-for-the-context",
+    "password-hash-with-argon2id",
+    "n-1-is-the-default-failure-mode-of-an-orm",
+    "composite-indexes-work-left-to-right",
+    "a-function-on-a-column-kills-the-index"
+  ],
+
+  "senior": [
+    "shared-nothing-nothing-survives-the-request",
+    "middleware-is-an-onion",
+    "document-root-is-public",
+    "dispatch-after-commit",
+    "measure-fix-the-query-then-cache",
+    "an-invoice-is-a-state-machine"
+  ]
+}

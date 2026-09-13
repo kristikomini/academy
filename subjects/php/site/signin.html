@@ -51,8 +51,8 @@
     <div class="box pro">
       <div class="box-title">🎓 What this form actually does</div>
       <p>
-        It <code>POST</code>s to <code>/api/auth/login</code> on
-        <code>Bottega.Academy.Api</code> and gets back an <strong>access token</strong> (a
+        It <code>POST</code>s to <code>/api/auth/login</code> on the Bottega accounts
+        service and gets back an <strong>access token</strong> (a
         short-lived JWT, sent on every later request as
         <code>Authorization: Bearer &hellip;</code>) and a <strong>refresh token</strong>
         (long-lived, stored only as a SHA-256 hash server-side, single-use, and rotated on
@@ -61,11 +61,14 @@
         response to its own refresh &mdash; and of those two, only one is safe to guess wrong.
       </p>
       <p>
-        Your password is never stored. It is run through PBKDF2 with a per-user salt, and the
-        iteration count is upgraded transparently on your next successful sign-in &mdash; that
-        moment is the only time the plaintext is legitimately available to re-hash.
-        Read it: <a href="chapters/15-api-security.html">15 &middot; Securing an API</a>,
-        then <code>src/Bottega.Academy.Api/Endpoints/AuthEndpoints.cs</code>.
+        Your password is never stored. It goes through <code>password_hash()</code> with
+        Argon2id, which generates its own salt and writes it into the returned string along
+        with the memory and time costs. Those costs are raised transparently on your next
+        successful sign-in, when <code>password_needs_rehash()</code> notices the stored
+        string is weaker than the current settings &mdash; that moment is the only time the
+        plaintext is legitimately available to re-hash.
+        Read it: <a href="chapters/15-api-security.html">15 &middot; Security: OWASP,
+        injection, XSS, CSRF and auth</a>.
       </p>
     </div>
 

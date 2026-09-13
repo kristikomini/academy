@@ -243,10 +243,12 @@
     }).join("");
 
     host.innerHTML = '<div class="part-list">' + rows + "</div>" +
-      '<p class="subtle">' + V.rules.length + " rules, generated from <code>course/GOLDEN-RULES.md</code>. " +
+      '<p class="subtle">' + V.rules.length + " rules, generated from the <code>.rules</code> block " +
+      "of every chapter by way of <code>course/GOLDEN-RULES.md</code>. " +
       "A rule counts as held once you have said it correctly twice and it is not due again for " +
-      "at least four days. Regenerate the deck with <code>dotnet run tools/viva-deck.cs</code> " +
-      "after editing the course.</p>";
+      "at least four days. Regenerate the deck with <code>" +
+      ((self.SUBJECT || {}).vivaCommand || "the viva deck generator") +
+      "</code> after editing a chapter.</p>";
   }
 
   /* ------------------------------------------------------------------ go */

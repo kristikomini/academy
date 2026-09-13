@@ -7,7 +7,7 @@ subject, sharing one learning engine.
 Academy/
   engine/               THE ENGINE. One copy. Subject-agnostic. The source of truth.
   subjects/
-    php/                Bottega Academy — PHP        (in progress)
+    php/                Bottega Academy — PHP        (chapters, questions and viva complete)
   tools/
     doctor.php          the integrity gate — run it before you trust anything
     sync-engine.php     copies /engine into each subject; --check reports drift

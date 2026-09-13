@@ -68,26 +68,35 @@
     <div class="box pro">
       <div class="box-title">🎓 What gets stored, exactly</div>
       <p>
-        Five columns on the user row: the normalised username, the display name, a PBKDF2 hash
-        with its <strong>per-user salt</strong> and its <strong>iteration count</strong>, and a
-        SHA-256 of the recovery code. <b>No email address</b> &mdash; it could never be
-        verified, never be written to and never be used to recover anything, so collecting one
-        would be personal data held for no purpose, which is what data minimisation exists to
-        stop.
+        Four columns on the user row: the normalised username, the display name, one
+        <code>password_hash()</code> string, and a SHA-256 of the recovery code. <b>No email
+        address</b> &mdash; it could never be verified, never be written to and never be used
+        to recover anything, so collecting one would be personal data held for no purpose,
+        which is what data minimisation exists to stop.
       </p>
       <p>
-        The salt is why two people who pick the same password get different hashes, so one
-        cracked hash does not crack the other. The iteration count is stored <em>per row</em>
-        rather than as a global constant, which is what lets the cost be raised later without
-        invalidating everyone: on your next successful sign-in the plaintext is momentarily
-        available again, and the row is re-hashed at the new cost.
+        Four, not six, and that is a PHP-specific decision worth being able to defend. The
+        salt and the cost parameters are <em>inside</em> the hash string that
+        <code>password_hash($pw, PASSWORD_ARGON2ID)</code> returns &mdash; it begins
+        <code>$argon2id$v=19$m=65536,t=4,p=1$</code> and then the salt, then the digest. A
+        port that adds <code>password_salt</code> and <code>password_iterations</code> columns
+        beside it has stored the same facts twice, and <code>password_verify()</code> would
+        ignore both.
       </p>
       <p>
-        The recovery code gets a plain SHA-256 where the password gets PBKDF2, and that is not
-        an oversight. Slow hashing buys time only against a <em>low-entropy, human-chosen</em>
-        secret; the code is 100 bits from a cryptographic RNG, so nothing guesses it however
-        fast the hash runs. Being able to say which of those two applies, and why, is most of
-        that interview question.
+        The salt is still why two people who pick the same password get different hashes, so
+        one cracked hash does not crack the other. And the cost still travels per row rather
+        than as a global constant, which is what lets it be raised later without invalidating
+        everyone: on your next successful sign-in the plaintext is momentarily available
+        again, <code>password_needs_rehash()</code> says the stored string was made with
+        weaker parameters, and the row is re-hashed at the new cost.
+      </p>
+      <p>
+        The recovery code gets a plain SHA-256 where the password gets Argon2id, and that is
+        not an oversight. Slow hashing buys time only against a <em>low-entropy,
+        human-chosen</em> secret; the code is 100 bits from a cryptographic RNG, so nothing
+        guesses it however fast the hash runs. Being able to say which of those two applies,
+        and why, is most of that interview question.
       </p>
       <p>
         Alongside it sits your progress document &mdash; one JSON blob, stored verbatim. The
@@ -95,9 +104,11 @@
         shown next to other people's names should not be one the browser simply asserted.
       </p>
       <p>
-        Read the code: <code>src/Bottega.Academy.Api/Security/PasswordHasher.cs</code> and
-        <code>Endpoints/AuthEndpoints.cs</code>, then the chapter it comes from &mdash;
-        <a href="chapters/15-api-security.html">15 &middot; Securing an API</a>.
+        The service that will hold this is <code>api/</code>: Slim 4 and PDO, with
+        <code>src/Security/PasswordHasher.php</code> and <code>src/Action/AuthAction.php</code>.
+        It is not written yet &mdash; the chapter is, and it is the better read anyway:
+        <a href="chapters/15-api-security.html">15 &middot; Security: OWASP, injection, XSS,
+        CSRF and auth</a>.
       </p>
     </div>
 

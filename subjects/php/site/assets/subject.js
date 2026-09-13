@@ -33,7 +33,7 @@ self.SUBJECT = {
      and activate() delete the old one. CHANGE THIS ON EVERY CONTENT CHANGE —
      forget, and returning visitors keep reading last month's chapters with no
      error anywhere. */
-  cacheVersion: 17,
+  cacheVersion: 20,
 
   /* Display strings. */
   name: "Bottega Academy",
@@ -74,7 +74,11 @@ self.SUBJECT = {
      for every subject but the one it was written for. */
   apiExample:   "http://localhost:8000",
   apiCommand:   "php -S localhost:5280 -t api/public",
-  vivaCommand:  "php tools/viva-deck.php",
+  /* Both steps, because the deck is derived twice over: viva-extract reads the
+     `.rules` block of every chapter into course/GOLDEN-RULES.md, and viva-deck
+     turns that into assets/rules.js. Printing only the second half sends people
+     to regenerate a deck from a markdown file that is itself out of date. */
+  vivaCommand:  "php tools/viva-extract.php php && php tools/viva-deck.php php",
 
   /* Seed values for the CV builder. Not advice — a starting point the learner
      overwrites, sized to what a junior PHP advert in this region asks for. */
