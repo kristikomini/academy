@@ -18,25 +18,230 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 6 — Real-time and the RTOS <span>&rsaquo;</span> Chapter 44</p>
+<p class="crumbs">Part 6 &mdash; Real-time and the RTOS <span>&rsaquo;</span> Chapter 44</p>
 <h1>FreeRTOS concretely, and what else exists</h1>
-<p class="lede">FreeRTOSConfig.h, the API you will actually type, and an honest map of Zephyr, ThreadX, RT-Thread, embOS and CMSIS-RTOS.</p>
+<p class="lede">
+  The configuration file that decides everything, the dozen API calls you will actually type, and an
+  honest map of the alternatives &mdash; because an advert that says &ldquo;an RTOS&rdquo; means
+  FreeRTOS about three times in four, and knowing it is a category is worth saying.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The market asks for 'an RTOS' and means FreeRTOS about three times in four, but naming the alternatives shows you know it is a category.</p>
+  <p>
+    This is the concrete end of <em>&ldquo;sistemi operativi Real-Time (RTOS)&rdquo;</em>. The advert
+    names no kernel, which is normal and is itself information: they expect you to have used
+    <em>one</em> and to be able to move.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="config">FreeRTOSConfig.h, where the decisions live</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    FreeRTOS is not a program that runs underneath yours. It is a few C files you compile into your
+    project, plus one header full of settings that decides how it behaves and how big it is.
+  </p>
+  <p>
+    Most problems people blame on the RTOS are settings in that one header.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Ten C files, about 9 KB of flash and a few hundred bytes of RAM for the kernel itself, MIT
+    licence. The settings that matter, and why:
+  </p>
+  <p>
+    <strong><code>configTICK_RATE_HZ</code></strong> &mdash; usually 1000. It is the resolution of
+    every delay and timeout, and the rate of a periodic interrupt you are paying for. It is
+    <em>not</em> the scheduling granularity: a task made ready by an interrupt runs immediately, not
+    at the next tick (<a href="42-isr-and-the-rtos.html">chapter 42</a>). Raising it to 10 kHz to
+    &ldquo;get better timing&rdquo; is almost always the wrong instrument; use a hardware timer.
+  </p>
+  <p>
+    <strong><code>configMAX_SYSCALL_INTERRUPT_PRIORITY</code></strong> &mdash; the ceiling from
+    <a href="42-isr-and-the-rtos.html">chapter 42</a>, and the single most misconfigured value in
+    the file.
+  </p>
+  <p>
+    <strong><code>configASSERT</code></strong> &mdash; define it in development. It catches the
+    interrupt-priority error, stack overflows, and several API misuses on the first offending call
+    rather than as corruption days later. Leaving it undefined is the most expensive default in the
+    file.
+  </p>
+  <p>
+    <strong>The heap scheme</strong>, chosen by compiling exactly one of <code>heap_1.c</code> to
+    <code>heap_5.c</code>. <code>heap_1</code> allocates and never frees &mdash; the safest, and
+    sufficient if all tasks are created at startup. <code>heap_4</code> coalesces adjacent free
+    blocks and is the sensible general choice. Better still, use the <code>...Static</code> creation
+    functions (<code>xTaskCreateStatic</code>, <code>xQueueCreateStatic</code>) and have no kernel
+    heap at all, which is what <a href="11-avoiding-malloc.html">chapter 11</a> argues for and what a
+    safety-related project will require.
+  </p>
+  <p>
+    <strong><code>configCHECK_FOR_STACK_OVERFLOW</code> = 2</strong> and
+    <strong><code>configUSE_TRACE_FACILITY</code></strong> &mdash; on in development. The first
+    paints stacks and calls a hook; the second enables the high-water-mark queries from
+    <a href="39-tasks-and-scheduler.html">chapter 39</a>.
+  </p>
+  <p>
+    The API you will actually type is small: <code>xTaskCreate</code>,
+    <code>vTaskStartScheduler</code>, <code>vTaskDelayUntil</code>, <code>xQueueCreate</code>,
+    <code>xQueueSend</code>/<code>Receive</code> and their <code>FromISR</code> forms,
+    <code>xSemaphoreCreateMutex</code>, <code>xSemaphoreTake</code>/<code>Give</code>,
+    <code>xTaskNotifyGive</code>/<code>ulTaskNotifyTake</code>, and
+    <code>portYIELD_FROM_ISR</code>. That is most projects.
+  </p>
+</div>
+
+<h2 id="alternatives">What else exists, and why it might be chosen</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    FreeRTOS is the most common, not the only one. The others exist because some projects need more
+    than a scheduler, or need a certificate saying the kernel is safe to use in a machine that can
+    hurt somebody.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    <strong>FreeRTOS</strong> &mdash; MIT, Amazon-stewarded, on essentially every architecture, and
+    the one every embedded engineer has seen. A scheduler and primitives, not an ecosystem: drivers,
+    networking and a build system are yours to assemble. <strong>SAFERTOS</strong> is the
+    independently certified sibling for IEC 61508 and ISO 26262 work
+    (<a href="65-misra-and-safety.html">chapter 65</a>).
+  </p>
+  <p>
+    <strong>Zephyr</strong> &mdash; Linux Foundation, Apache 2.0, and a different proposition: a
+    kernel <em>plus</em> a device-driver model, device tree, Kconfig, networking, Bluetooth and a
+    package manager. Much more capable and much more to learn; it is where a lot of new connected
+    product work is going, and its device-tree-based configuration is the biggest conceptual jump for
+    someone coming from CubeMX.
+  </p>
+  <p>
+    <strong>ThreadX</strong> (Azure RTOS, now Eclipse ThreadX) &mdash; mature, small, fast, with
+    pre-existing safety and security certifications, and a full middleware suite. Common in medical
+    and industrial products.
+  </p>
+  <p>
+    <strong>RT-Thread</strong> &mdash; large ecosystem, dominant in China, increasingly visible
+    elsewhere. <strong>embOS</strong> (SEGGER) &mdash; commercial, excellent tooling, often paired
+    with their trace tools. <strong>Micrium &micro;C/OS</strong> &mdash; long-established, now open
+    source, heavily used in certified products.
+  </p>
+  <p>
+    <strong>CMSIS-RTOS2</strong> deserves a separate note because it is not a kernel: it is ARM's
+    standard <em>wrapper</em> API that sits on top of FreeRTOS or another kernel. STM32CubeMX
+    generates against it by default, which is why generated code says <code>osThreadNew</code> rather
+    than <code>xTaskCreate</code>. It buys portability between kernels and costs a thin layer plus
+    some loss of kernel-specific features &mdash; and being able to explain that in one sentence is a
+    good answer to a question the generated code will prompt.
+  </p>
+  <p>
+    The honest framing for an interview: the concepts in Part 6 &mdash; tasks, priorities, blocking,
+    the ISR boundary, inversion &mdash; are the transferable part and they are identical everywhere.
+    The API names are a week.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>freertos, config, heap_1, heap_4, tick, rate, configuration, api, xtaskcreate, vtaskdelay</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>Creating tasks, queues and semaphores without checking the return value.</strong> On a
+    heap-based configuration every one of these allocates, and every one can fail &mdash; returning
+    <code>NULL</code> or <code>pdFAIL</code> rather than trapping.
+  </p>
+  <p>
+    The classic sequence: a project grows, the kernel heap silently runs out during initialisation,
+    <code>xQueueCreate</code> returns <code>NULL</code>, nobody checks, and the first
+    <code>xQueueSend</code> to a null handle faults somewhere unrelated. The board resets at startup
+    and the evidence points at whatever ran last.
+  </p>
+  <p>
+    Check every handle at creation, and treat a failure as fatal and loud rather than as something to
+    continue past &mdash; there is no sensible recovery from &ldquo;the system could not be built&rdquo;.
+    Better still, use the static creation functions, where the memory is yours and the failure cannot
+    happen at all. Add <code>vApplicationMallocFailedHook</code> and
+    <code>vApplicationStackOverflowHook</code> and make both of them stop visibly.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> The POSIX simulator runs the real scheduler on your laptop, so most of this
+  needs no hardware.</p>
+  <pre><code>1. Build FreeRTOS for the POSIX/Linux port, or CubeMX-generate a project
+   with FreeRTOS enabled for a Nucleo. Either way, start from the demo
+   and delete everything you do not understand -- that deletion is the
+   exercise.
+
+2. Turn on the development settings before writing any code:
+
+     #define configASSERT(x)  if((x)==0){taskDISABLE_INTERRUPTS();for(;;);}
+     #define configCHECK_FOR_STACK_OVERFLOW  2
+     #define configUSE_TRACE_FACILITY        1
+
+   Then write vApplicationStackOverflowHook so it stops somewhere you
+   will notice. You have just made two whole classes of bug loud.
+
+3. Build the same three-task program twice: once with xTaskCreate
+   (heap_4) and once with xTaskCreateStatic (no kernel heap at all).
+   Compare arm-none-eabi-size output. Then look at what changed in the
+   source -- it is less than you expect, and it is the difference
+   between "we think it fits" and "the linker says it fits".
+
+4. Make a queue creation fail on purpose: shrink configTOTAL_HEAP_SIZE
+   until xQueueCreate returns NULL. Run it once without checking the
+   return value and see where it faults -- somewhere unrelated, at a
+   confusing moment. Then add the check. That is the whole argument.
+
+5. Finally, open the CubeMX-generated main.c and find osThreadNew.
+   Trace it down to xTaskCreate. Now you can answer the question the
+   generated code invites: what CMSIS-RTOS2 is, and why it is there.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>FreeRTOS is ten C files and a config header</strong>, compiled into your project &mdash; not something running underneath it.</li>
+    <li><strong>The tick rate is delay resolution, not scheduling granularity.</strong> An interrupt-woken task runs immediately.</li>
+    <li><strong>Define configASSERT in development.</strong> It is the most expensive default in the file.</li>
+    <li><strong>Turn on stack-overflow checking and the trace facility</strong>, and write the hooks so they stop visibly.</li>
+    <li><strong>Prefer the Static creation functions</strong> and have no kernel heap; otherwise heap_4 is the sensible default.</li>
+    <li><strong>Check every creation return value.</strong> A null queue handle faults later, somewhere unrelated.</li>
+    <li><strong>CMSIS-RTOS2 is a wrapper, not a kernel</strong>, and it is why generated code says osThreadNew.</li>
+    <li><strong>Zephyr is a kernel plus an ecosystem</strong>; ThreadX and SAFERTOS carry safety certification.</li>
+    <li><strong>The concepts transfer; the API names are a week.</strong></li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Che RTOS ha usato?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;FreeRTOS, che &egrave; anche quello che si trova pi&ugrave; spesso &mdash; dieci file
+    C e un header di configurazione compilati dentro il progetto, non qualcosa che gira sotto. Le
+    cose su cui sto attento sono nel config: <code>configASSERT</code> definito in sviluppo,
+    perch&eacute; prende al primo colpo l&rsquo;errore di priorit&agrave; degli interrupt e gli
+    overflow di stack invece di farmeli trovare come corruzione tre giorni dopo; il controllo di
+    stack overflow a 2 con il suo hook; e, dove posso, le funzioni di creazione statiche, cos&igrave;
+    non ho heap del kernel e la memoria me la conferma il linker invece di sperarci. Una cosa che
+    controllo sempre &egrave; il valore di ritorno di <code>xTaskCreate</code> e
+    <code>xQueueCreate</code>: se l&rsquo;heap finisce durante l&rsquo;init quelle ritornano NULL, e
+    la prima <code>xQueueSend</code> su un handle nullo va in fault in un punto che non c&rsquo;entra
+    niente. Degli altri conosco il panorama: Zephyr &egrave; un kernel pi&ugrave; un ecosistema con
+    device tree e Kconfig, ThreadX e SAFERTOS si usano dove serve la certificazione di sicurezza, e
+    CMSIS-RTOS2 non &egrave; un kernel ma il wrapper che CubeMX genera sopra FreeRTOS. In ogni caso
+    la parte che si trasferisce sono i concetti &mdash; task, priorit&agrave;, bloccaggio, il
+    confine con le ISR, l&rsquo;inversione di priorit&agrave; &mdash; i nomi delle funzioni sono una
+    settimana.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

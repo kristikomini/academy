@@ -18,25 +18,228 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 7 — Serial protocols <span>&rsaquo;</span> Chapter 45</p>
+<p class="crumbs">Part 7 &mdash; Serial protocols <span>&rsaquo;</span> Chapter 45</p>
 <h1>The physical layer, and why RS-485</h1>
-<p class="lede">Voltage levels, single-ended versus differential, grounding and termination. Why a cable 200 m long changes the answer.</p>
+<p class="lede">
+  Before any protocol there is a voltage on a wire in a factory, next to a motor drive, two hundred
+  metres from where it started. Everything Part 7 does above this layer assumes this layer works
+  &mdash; and when it does not, the symptom looks exactly like a software bug.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p>This chapter answers <em>"Conoscenza approfondita dei protocolli di comunicazione seriale e Ethernet"</em> &mdash; a line that appeared in the adverts this course was built from.</p>
+  <p>
+    This chapter answers <em>&ldquo;Conoscenza approfondita dei protocolli di comunicazione seriale e
+    Ethernet&rdquo;</em>. <em>Approfondita</em> is the word doing the work: anyone can call
+    <code>HAL_UART_Transmit</code>, and the depth being asked for starts here, one layer below it.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="single-vs-diff">Single-ended, and why it stops working</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The simple way to send a bit is one wire plus a shared ground: high voltage means one, low means
+    zero. It works on a desk.
+  </p>
+  <p>
+    In a factory it stops working, for two reasons. Electrical noise from motors adds itself to your
+    wire, and the &ldquo;ground&rdquo; at the far end of a long cable is not actually at the same
+    voltage as the ground where you started.
+  </p>
+  <p>
+    The fix is to stop measuring against ground. Send the signal on two wires at once, one the
+    mirror of the other, and have the receiver look only at the <em>difference</em> between them.
+    Noise hits both wires equally, so it cancels out of the difference exactly.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    <strong>TTL/CMOS</strong> &mdash; what the microcontroller pin actually produces: 0 V and 3.3 V
+    (or 5 V), referenced to the board's ground. Good for a few tens of centimetres, on the board or
+    to a nearby module. This is what you have between the MCU and an RS-485 transceiver chip, and it
+    is the level a USB-serial adapter expects.
+  </p>
+  <p>
+    <strong>RS-232</strong> &mdash; single-ended, but with large bipolar swings (nominally
+    &plusmn;12 V, receivers switch around &plusmn;3 V) and inverted logic. The wide swing buys noise
+    margin; the shared ground reference still limits it to roughly 15 m and one device per link.
+    Legacy, still present on older instruments and service ports.
+  </p>
+  <p>
+    <strong>RS-422</strong> &mdash; differential, one driver and up to ten receivers, full duplex on
+    two pairs. Point-to-multipoint broadcast.
+  </p>
+  <p>
+    <strong>RS-485</strong> &mdash; differential, <strong>multi-drop</strong> (up to 32 unit loads on
+    a segment as standard, more with low-load transceivers), half duplex on a single twisted pair, up
+    to about <strong>1200 m</strong> at low baud rates. A receiver decides on the differential
+    voltage between A and B, with a threshold of about &plusmn;200 mV. This is why it is the
+    industrial default and why <a href="50-modbus-rtu.html">Modbus RTU</a> lives on it.
+  </p>
+  <p>
+    The property that matters is <strong>common-mode rejection</strong>. Interference couples into
+    both conductors of a twisted pair almost identically, so it appears as a common-mode offset and
+    the receiver, which only sees A minus B, ignores it. Transceivers specify a common-mode range
+    &mdash; typically &minus;7 V to +12 V &mdash; and that range is what tolerates the ground
+    potential difference between two ends of a long run. Exceed it and the link fails regardless of
+    how clean your signal is.
+  </p>
+  <p>
+    There is also a rate-distance trade: the usual rule of thumb is that baud rate times cable length
+    is roughly constant, so 1200 m is a low-baud proposition and 10 Mbit/s is a short one.
+  </p>
+</div>
+
+<h2 id="topology">Termination, biasing and the shape of the cable</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    An electrical signal travelling down a long cable behaves like a wave. When it reaches the end,
+    if there is nothing there to absorb it, it bounces back and interferes with what comes after.
+  </p>
+  <p>
+    So you put a resistor at each far end to absorb it &mdash; at the two ends of the run only, not
+    at every device. And the cable should be one line with devices along it, not a star, because
+    every branch is another end for the signal to bounce off.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    <strong>Termination.</strong> A resistor matching the cable's characteristic impedance &mdash;
+    <strong>120 &Omega;</strong> for standard RS-485 twisted pair &mdash; across A and B at
+    <em>each of the two physical ends</em> of the bus, and nowhere else. Terminating every node
+    loads the driver until nobody can reach threshold; terminating neither produces reflections that
+    corrupt the fastest edges first, so the link works at 9600 and fails at 115200.
+  </p>
+  <p>
+    <strong>Topology.</strong> Daisy-chain, in and out at each device. Stubs from the trunk to a
+    device should be very short &mdash; centimetres, not metres. A star wired in a panel because it
+    was convenient is the classic field fault, and it is invisible in the software.
+  </p>
+  <p>
+    <strong>Fail-safe biasing.</strong> When no driver is enabled the bus is idle and floating, and a
+    floating differential input can flip randomly &mdash; which a UART sees as a start bit followed by
+    noise (<a href="46-uart.html">chapter 46</a>). Bias resistors pull A and B apart far enough to
+    hold the idle state, and many modern transceivers include internal fail-safe for this. The
+    symptom of missing bias is a device that receives garbage frames when nothing is being
+    transmitted at all.
+  </p>
+  <p>
+    <strong>The ground wire.</strong> Differential does not mean groundless. The common-mode range
+    must be respected, so a third conductor (or a cable shield bonded at <em>one</em> end only, to
+    avoid a ground loop) is required for anything but a short run. Shield bonded at both ends creates
+    a circulating current, which is itself a noise source.
+  </p>
+  <p>
+    <strong>Isolation.</strong> On a machine with drives and contactors, an isolated transceiver
+    (transformer or capacitively coupled) is worth the cost: it breaks the ground loop entirely and
+    protects the MCU from a transient that would otherwise destroy it. Ask the hardware engineer
+    whether the board is isolated &mdash; it is one of the more useful questions you can ask at a
+    bench (<a href="63-reading-a-schematic.html">chapter 63</a>).
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>physical, layer, ttl, rs232, rs422, rs485, differential, common, mode, noise</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>Half duplex means a driver-enable pin, and releasing it at the wrong moment is a
+    firmware bug that presents as a hardware fault.</strong> This is the single most common RS-485
+    mistake and it is worth being able to describe precisely.
+  </p>
+  <p>
+    One pair, so only one device may drive at a time. Your firmware asserts DE before the first bit
+    and releases it after the last bit has <em>physically left the shift register</em> &mdash; that is
+    the <strong>transmission complete</strong> flag (TC), not the transmit-buffer-empty flag (TXE),
+    which fires as soon as the byte moves from the data register into the shifter and still has a
+    whole character time to go.
+  </p>
+  <p>
+    Release on TXE and you truncate the final character, every time, by a predictable amount. At the
+    master this appears as an intermittent CRC error, which looks like noise, which sends everybody
+    to check the cable. The other half of the same problem is releasing too late: hold DE beyond the
+    stop bit and you collide with the slave's reply, which on a polled bus means a timeout.
+  </p>
+  <p>
+    Many STM32 USARTs implement the driver-enable in hardware (the DEM bit, with configurable
+    assertion and de-assertion guard times). Use it where it exists &mdash; hardware cannot be late
+    the way an interrupt can.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> The first two need nothing but a USB-serial adapter; the third is the one
+  that changes how you debug.</p>
+  <pre><code>1. Cheapest possible RS-485 setup: two USB-RS485 adapters (a few euro
+   each), a length of twisted pair, and 120 ohm across A and B at each
+   end. Run a Modbus master on one and a slave on the other (chapter 50).
+   You now have a two-node industrial bus on your desk.
+
+2. Now break it on purpose, one variable at a time, and watch the
+   failure mode each time:
+
+     - remove ONE terminator     -- often still works; margin is gone
+     - remove BOTH               -- fails at high baud, fine at 9600
+     - terminate a THIRD node    -- driver overloaded, nobody decodes
+     - add a 2 m stub off the trunk -- reflections, intermittent CRC
+     - swap A and B at one node  -- silence, and no error anywhere
+
+   That last one is worth doing once. Reversed polarity produces no
+   diagnostic at all, and it is a real field fault.
+
+3. With a scope (chapter 62), probe A and B separately, then use the
+   maths channel to show A minus B. Seeing the noise on both traces
+   vanish from the difference is the entire argument for differential
+   signalling in one picture.
+
+4. If you have a board with an RS-485 transceiver: toggle a spare GPIO
+   when you assert and release DE, and put it on the analyser next to
+   the data. Move the release from TC to TXE and watch the last
+   character get cut in half.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Differential signalling rejects noise because interference hits both conductors equally</strong> and cancels in the difference.</li>
+    <li><strong>RS-485 is differential, multi-drop, half duplex</strong>, to about 1200 m at low baud; RS-232 is single-ended and about 15 m.</li>
+    <li><strong>Common-mode range, typically &minus;7 V to +12 V, is what tolerates ground potential difference.</strong> Exceed it and no signal quality helps.</li>
+    <li><strong>120 &Omega; at the two physical ends of the bus only</strong> &mdash; not at every node, and not nowhere.</li>
+    <li><strong>Daisy-chain with short stubs.</strong> A star wired in a panel is the classic field fault and is invisible in software.</li>
+    <li><strong>An idle unbiased bus floats</strong>, and a UART reads floating noise as frames arriving when nobody is transmitting.</li>
+    <li><strong>Differential still needs a ground reference</strong>, and a shield bonded at both ends is a ground loop.</li>
+    <li><strong>Release the driver enable on transmission-complete, never on transmit-buffer-empty</strong> &mdash; TXE truncates the last character and presents as intermittent CRC errors.</li>
+    <li><strong>Baud rate times distance is roughly constant.</strong></li>
+    <li><strong>Reversed A and B gives silence with no diagnostic.</strong></li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Perch&eacute; in campo si usa RS-485 e non una seriale normale?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Per due motivi che sono lo stesso motivo. Una seriale single-ended misura la tensione
+    rispetto a massa, e in uno stabilimento la massa a duecento metri di distanza non &egrave; la
+    stessa massa da cui sono partito, oltre al fatto che gli inverter iniettano rumore sul cavo.
+    RS-485 &egrave; differenziale: mando il segnale su due fili in opposizione e il ricevitore guarda
+    solo la differenza, quindi il rumore, che si accoppia uguale su entrambi, si cancella. In
+    pi&ugrave; &egrave; multi-drop, quindi metto trentadue nodi sulla stessa coppia, che &egrave;
+    esattamente quello che serve a un bus Modbus. Le cose che controllo sempre in campo sono tre: la
+    terminazione da 120 ohm ai due capi fisici del bus e basta &mdash; non su ogni nodo e non da
+    nessuna parte; la topologia a catena con derivazioni cortissime, perch&eacute; una stella fatta
+    in quadro d&agrave; riflessioni che sembrano un bug software; e il polarization fail-safe, senza
+    il quale a bus fermo la linea fluttua e la UART legge frame che nessuno ha mandato. Poi
+    c&rsquo;&egrave; la parte che &egrave; colpa mia e non del cavo: essendo half duplex devo
+    pilotare il driver enable, e va rilasciato sul flag di trasmissione completata, non su quello di
+    buffer vuoto, altrimenti tronco l&rsquo;ultimo carattere e al master sembra rumore.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

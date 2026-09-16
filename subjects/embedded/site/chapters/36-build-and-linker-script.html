@@ -18,25 +18,327 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 5 — STM32, concretely <span>&rsaquo;</span> Chapter 36</p>
+<p class="crumbs">Part 5 &mdash; STM32, concretely <span>&rsaquo;</span> Chapter 36</p>
 <h1>Makefile, CMake and the linker script</h1>
-<p class="lede">Leaving the IDE. What the generated build is doing, and how to read the .ld file that decides where everything lands.</p>
+<p class="lede">
+  Leaving the IDE. What the four steps of a build actually are, how a cross-compiler is told which
+  machine it is building for, and how to read the <code>.ld</code> file that decides where every byte
+  of your program lands &mdash; including the one that tells you that you have run out of RAM.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The step that turns a project from an IDE artefact into something a build server can produce, which is what a team needs.</p>
+  <p>
+    <strong>Not named in the anchor advert</strong>, which assumes the STM32 development environment
+    and leaves the build inside it. It is here because a project that can only be built by one person
+    clicking a button in an IDE is not a project a team can ship &mdash; and because the second advert
+    in the corpus asks in so many words for somebody to <em>&ldquo;supportare le attivit&agrave; di
+    build e integrazione software&rdquo;</em>.
+  </p>
+  <p>
+    <a href="64a-automotive-v-cycle.html">Chapter 64a</a> is what that job looks like from the process
+    side. This is the mechanism underneath it.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="four-steps">The four steps, and where each one fails</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Building is four steps, and knowing which one broke tells you almost everything about the error
+    message in front of you.
+  </p>
+  <p>
+    The <strong>preprocessor</strong> pastes headers together and resolves the <code>#if</code>s.
+    The <strong>compiler</strong> turns each of those files, on its own, into machine code. The
+    <strong>linker</strong> joins all those pieces, resolves the names each one left open, and places
+    everything at real addresses. Then a small tool copies the result out into the plain
+    <strong>hex file</strong> a programmer can flash.
+  </p>
+  <p>
+    A missing header is step one. A syntax error is step two. &ldquo;Undefined reference&rdquo; is
+    step three &mdash; the compiler was happy, nobody supplied the function. And &ldquo;region RAM
+    overflowed&rdquo; is also step three, telling you the program does not physically fit.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    <a href="02-source-to-hex.html">Chapter 2</a> walked the path; this is the part you configure.
+    For an STM32 the toolchain is <code>arm-none-eabi-</code>: the <em>none</em> is the operating
+    system, which is to say there is not one, and <em>eabi</em> is the calling and object-file
+    convention. Three groups of flags do the real work, and being able to say what each is for is a
+    reasonable interview bar:
+  </p>
+  <ul>
+    <li><strong>Architecture flags</strong>, which must be identical for every object file and every
+        prebuilt library you link: <code>-mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16
+        -mfloat-abi=hard</code>. A mismatch here produces either a link error about incompatible
+        float ABIs, or &mdash; worse &mdash; a binary that runs until the first float crosses a
+        function boundary.</li>
+    <li><strong>Language and warning flags</strong>: <code>-std=c11 -Wall -Wextra</code>, plus
+        <code>-Werror</code> in CI. Firmware warnings are rarely stylistic;
+        <code>-Wall</code> catches a good share of the undefined behaviour in
+        <a href="13-undefined-behaviour.html">chapter 13</a>.</li>
+    <li><strong>Optimisation and debug</strong>: <code>-O0</code> for a first bring-up,
+        <code>-Og</code> for daily debugging, <code>-Os</code> for a size-constrained release.
+        <strong>Always <code>-g</code></strong>, in every configuration including the shipped one:
+        debug symbols live in the ELF, not in the hex, so they cost nothing on the device and are the
+        only thing that will let you decode a crash from the field.</li>
+  </ul>
+  <p>
+    Two more that pay for themselves: <code>-ffunction-sections -fdata-sections</code> with
+    <code>-Wl,--gc-sections</code>, which lets the linker discard anything unreferenced instead of
+    dragging in a whole object file for one function; and <code>-Wl,-Map=build/out.map</code>, which
+    writes the map file &mdash; the single most underused artefact in embedded work, and the subject of
+    the exercise below.
+  </p>
+  <p>
+    <strong>Make or CMake?</strong> A hand-written Makefile is fine and completely transparent, and
+    for one board it is often the right answer. CMake earns its keep when you have several targets
+    (the device build and the host test build from
+    <a href="35-firmware-architecture.html">chapter 35</a>), several variants, and an IDE that
+    somebody else insists on using. The concept that matters in CMake is the
+    <strong>toolchain file</strong>: a small file naming the cross-compiler and the architecture
+    flags, passed once with <code>-DCMAKE_TOOLCHAIN_FILE=...</code>, which is how the same project
+    configures for the target or for the host. Whichever you pick, <strong>build out of tree</strong>
+    &mdash; every artefact under <code>build/</code>, nothing generated beside the source &mdash; so
+    that a clean build is a directory deletion rather than an act of faith.
+  </p>
+</div>
+
+<h2 id="linker-script">Reading the linker script</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The chip has two kinds of memory at fixed addresses: flash, which keeps its contents with the
+    power off, and RAM, which is fast but forgets. Your program is made of pieces with different
+    needs: instructions and constants can live in flash; variables must end up in RAM.
+  </p>
+  <p>
+    The linker script is the small file that says where each kind of piece goes. It is also the file
+    that says how big each memory is &mdash; which is why it, and not the compiler, is what tells you
+    that your program no longer fits.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    An <code>.ld</code> file has two halves. <code>MEMORY</code> declares the regions, and
+    <code>SECTIONS</code> places the input sections into them:
+  </p>
+  <pre><code>MEMORY
+{
+  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 512K
+  RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 128K
+}
+
+SECTIONS
+{
+  .isr_vector : { KEEP(*(.isr_vector)) } &gt; FLASH   /* must be first */
+  .text       : { *(.text*) *(.rodata*) } &gt; FLASH
+  .data       : { _sdata = .; *(.data*) _edata = .; } &gt; RAM AT&gt; FLASH
+  .bss        : { _sbss  = .; *(.bss*)  _ebss = .; } &gt; RAM
+}</code></pre>
+  <p>
+    The line worth understanding completely is <code>.data</code>. Initialised globals need two
+    addresses: a <strong>load address</strong> in flash, where their initial values are stored, and a
+    <strong>virtual address</strong> in RAM, where the program will find them. <code>&gt; RAM AT&gt;
+    FLASH</code> is exactly that, and the symbols around it are what the startup code from
+    <a href="24-startup-to-main.html">chapter 24</a> uses to copy the block across before
+    <code>main</code>. <code>.bss</code> has no load address because it is zeroed, which is why a large
+    zero-initialised array costs RAM but no flash &mdash; and why moving an array from
+    <code>= {0}</code> to <code>= {1}</code> can suddenly cost kilobytes of flash.
+    <code>KEEP</code> on the vector table prevents <code>--gc-sections</code> from discarding it,
+    since nothing in C ever references it.
+  </p>
+  <p>
+    Three things you will actually need to do to a linker script in a real project: reserve a region
+    for the <a href="34-flash-and-bootloader.html">bootloader</a> and move the application's
+    <code>ORIGIN</code> past it; place a small no-init section that survives a warm reset to carry a
+    crash reason across it; and put a buffer in a particular memory &mdash; CCM RAM, or a DMA-capable
+    region, which is a real constraint on many parts
+    (<a href="27-dma.html">chapter 27</a>). All three are a couple of lines, and all three are
+    invisible until somebody has read this file once.
+  </p>
+</div>
+
+<h2 id="reproducible">The build a team can trust</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A build is trustworthy when anybody can check out the code on any machine, run one command, and
+    get exactly the same binary. That sounds obvious and is surprisingly rare: the usual project
+    builds differently depending on which version of the compiler happens to be installed, and
+    produces a different binary every time because it stamps the current date into it.
+  </p>
+  <p>
+    Getting to one command that anybody can run is the difference between code that works and a
+    product a team can release.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    What to fix, roughly in order of payoff:
+  </p>
+  <ul>
+    <li><strong>Pin the toolchain</strong> and print its version in the build log. A container image
+        or a downloaded, checksummed toolchain archive; not &ldquo;whatever is on the PATH&rdquo;.
+        Different GCC versions produce different code, different sizes and occasionally different
+        behaviour, and <a href="65-misra-and-safety.html">a safety argument</a> names the compiler
+        version explicitly.</li>
+    <li><strong>Remove non-determinism.</strong> <code>__DATE__</code> and <code>__TIME__</code> in
+        the firmware are the usual culprits; replace them with the Git describe output, which changes
+        only when the source does. Then verify by building twice from clean and diffing the
+        binaries.</li>
+    <li><strong>Stamp identity into the binary</strong>: version, Git hash, dirty flag, and make it
+        readable over the diagnostic interface. When a board comes back from the field, the first
+        question is which software is on it, and <a href="66-git-review-release.html">chapter 66</a>
+        is about being able to answer it.</li>
+    <li><strong>Build variants from one source tree</strong>, with the variant name in the artefact
+        name, so <code>make VARIANT=pump2 release</code> yields
+        <code>build/pump2/app-pump2-v1.4.2.hex</code>. The moment variants live on branches instead
+        of in the build system, merging becomes the product's main engineering cost.</li>
+    <li><strong>Publish the size and the map on every build.</strong> <code>arm-none-eabi-size</code>
+        in the log turns &ldquo;we ran out of flash&rdquo; from a surprise into a graph.</li>
+  </ul>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>makefile, cmake, ninja, toolchain, file, cross, compile, arm-none-eabi, linker, script</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>The link succeeds, the board boots, and you are already out of RAM &mdash; because the
+    linker checked the static footprint and nobody checked the stack.</strong>
+  </p>
+  <p>
+    <code>region RAM overflowed</code> counts <code>.data</code> and <code>.bss</code>. It does not
+    count how deep your call graph goes at run time, and on most default scripts the stack is simply
+    placed at the top of RAM and grown downwards with nothing between it and your variables. Add a
+    488-byte buffer to a function, and one day an interrupt arrives at the wrong moment and the stack
+    writes over <code>.bss</code>. The symptom is a variable changing value on its own, which is the
+    single most expensive bug class in this field
+    (<a href="12-stack-overflow.html">chapter 12</a>).
+  </p>
+  <p>
+    What to do, all of it cheap. Read the <strong>map file</strong> after every significant change and
+    know your static total, rather than discovering it at 99&nbsp;%. Compute a worst-case stack depth
+    &mdash; GCC's <code>-fstack-usage</code> emits per-function frame sizes, and a small script over
+    the call graph turns those into a number. Put a <strong>guard region</strong> between the stack
+    and <code>.bss</code> in the linker script, filled with a pattern, and check it; or use the MPU to
+    make the overflow a fault instead of a corruption. And in an RTOS, remember each task has its own
+    stack and the linker sees it as one anonymous array, so
+    <a href="44-freertos-concretely.html">the high-water mark API</a> is the only measurement that
+    means anything.
+  </p>
+  <p>
+    Related, and very common in interviews: <strong>&ldquo;why is my hex file smaller than my ELF?&rdquo;</strong>
+    Because the ELF carries debug information and section metadata and the hex carries only the bytes
+    that go into flash. And <strong>&ldquo;why did my float printf add 20 KB?&rdquo;</strong> Because
+    the standard library's formatted output pulls in floating-point conversion; newlib-nano and
+    <code>-u _printf_float</code> exist precisely so that this is a decision rather than an accident.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> Everything here works on an ordinary PC with
+  <code>gcc-arm-none-eabi</code> installed, with no board attached &mdash; you are inspecting build
+  artefacts, not running them.</p>
+  <pre><code>1. Take a CubeIDE project and build it from a terminal instead. Cube
+   can generate a Makefile (Project Manager -> Toolchain: Makefile);
+   generate it, run `make`, and read the first compile line it prints
+   in full. Every flag in it is one of the three groups above -- name
+   each one out loud. That exercise alone removes most of the mystery.
+
+2. Add the map file and read it:
+
+     LDFLAGS += -Wl,-Map=build/out.map,--cref
+     arm-none-eabi-size -A build/app.elf
+
+   Find your three biggest objects in the map. It is almost never what
+   you expect, and it is frequently a library you did not know you
+   linked.
+
+3. Make something not fit, on purpose. Add `uint8_t big[100000];` and
+   read the error. Then make it `static` and unused and watch it still
+   not fit -- .bss is reserved whether or not you use it. Then turn on
+   -ffunction-sections -fdata-sections -Wl,--gc-sections and compare
+   sizes before and after on the real project.
+
+4. Move the application. Change ORIGIN of FLASH from 0x08000000 to
+   0x08008000 and LENGTH down by 32K, as if a bootloader lived there,
+   and rebuild. Then look at the hex file's first record and confirm
+   the addresses moved. That is the entire mechanism behind chapter 34.
+
+5. Prove reproducibility. Build twice from clean into two directories
+   and diff the hex files. If they differ, find the __DATE__ or the
+   absolute path that leaked in and remove it. A reproducible build is
+   a concrete, demonstrable thing to have done.
+
+6. Then do it in CI: a GitHub Actions or GitLab job that installs a
+   PINNED toolchain, builds, prints `size`, and uploads the hex and
+   the map as artefacts. That job is a genuinely good portfolio item,
+   and chapter 70 explains why it is worth more on a CV than another
+   blinking LED.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Know which of the four steps failed</strong> &mdash; preprocess, compile, link,
+        objcopy. &ldquo;Undefined reference&rdquo; and &ldquo;region overflowed&rdquo; are both the
+        linker, and they mean opposite things.</li>
+    <li><strong>Architecture flags must match everywhere</strong>, including prebuilt libraries. A
+        float-ABI mismatch is a link error on a good day and a silent corruption on a bad one.</li>
+    <li><strong>Always compile with <code>-g</code></strong>, including releases. Symbols live in the
+        ELF, not in the hex.</li>
+    <li><strong><code>--gc-sections</code> with <code>-ffunction-sections</code></strong> is usually
+        the cheapest size win available.</li>
+    <li><strong>Generate and read the map file.</strong> It is the only place the truth about size
+        lives.</li>
+    <li><strong>The linker script owns the memory map</strong>: <code>MEMORY</code> for regions,
+        <code>SECTIONS</code> for placement, and <code>&gt; RAM AT&gt; FLASH</code> is why
+        <code>.data</code> has two addresses.</li>
+    <li><strong><code>.bss</code> costs RAM and no flash</strong>, so a zero-initialised array is free
+        in flash and a non-zero one is not.</li>
+    <li><strong>The linker does not know about the stack.</strong> Measure it; guard it; in an RTOS
+        use the high-water mark.</li>
+    <li><strong>Build out of tree, one command, pinned toolchain</strong>, and print the toolchain
+        version in the log.</li>
+    <li><strong>Stamp version and Git hash into the binary</strong> and make them readable from the
+        device.</li>
+    <li><strong>Variants belong in the build system, never on branches.</strong></li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Sa uscire dall&rsquo;IDE? Mi spieghi come compila e cosa fa il linker script.&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;S&igrave;, e lo considero il passaggio che rende un progetto di squadra invece che di
+    una persona. La toolchain &egrave; arm-none-eabi, e i flag li divido in tre gruppi: architettura
+    &mdash; mcpu, mthumb, fpu e float-abi, che devono essere identici per tutti gli oggetti e anche
+    per le librerie precompilate, se no al link mi salta fuori un errore di ABI incompatibile;
+    linguaggio e warning, con -Wall -Wextra e -Werror in CI; e ottimizzazione, con -g sempre, anche in
+    release, perch&eacute; i simboli stanno nell&rsquo;ELF e non nell&rsquo;hex, quindi sul dispositivo
+    non costano niente e senza di quelli un crash dal campo non lo decodifico. Il linker script ha due
+    parti: MEMORY, che dichiara flash e RAM con indirizzo e dimensione, e SECTIONS, che piazza le
+    sezioni. La riga che vale la pena saper spiegare &egrave; la .data, che ha due indirizzi &mdash;
+    sta in RAM ma &egrave; caricata in flash &mdash; ed &egrave; il motivo per cui lo startup prima di
+    main copia quel blocco; la .bss invece viene solo azzerata, quindi costa RAM e non flash. La cosa
+    che guardo sempre &egrave; il file di mappa, e soprattutto lo stack: il linker mi dice se
+    .data e .bss ci stanno, non mi dice quanto &egrave; profonda la mia catena di chiamate, e
+    l&rsquo;overflow dello stack si manifesta come una variabile che cambia da sola. Quindi
+    -fstack-usage, una regione di guardia o l&rsquo;MPU, e su RTOS la high-water mark per
+    task.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

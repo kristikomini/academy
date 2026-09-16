@@ -18,25 +18,325 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 11 — The human requirements <span>&rsaquo;</span> Chapter 67</p>
+<p class="crumbs">Part 11 &mdash; The human requirements <span>&rsaquo;</span> Chapter 67</p>
 <h1>Technical English</h1>
-<p class="lede">The advert asks for written and spoken English. In this job it means the reference manual, the errata, the vendor forum and the supplier call.</p>
+<p class="lede">
+  The advert asks for written and spoken English. In this job that means four concrete things: the
+  reference manual, the errata sheet, the message you write to a vendor's support desk, and the call
+  with a supplier who is not Italian either. All four are narrower than general English, and all four
+  are trainable in weeks rather than years.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p>This chapter answers <em>"Buona conoscenza della lingua inglese, scritta e parlata"</em> &mdash; a line that appeared in the adverts this course was built from.</p>
+  <p>
+    This chapter answers <em>&ldquo;Buona conoscenza della lingua inglese, scritta e parlata&rdquo;</em>
+    &mdash; a line that appeared in the adverts this course was built from. The second advert in the
+    corpus raises it to <em>&ldquo;conoscenza fluente della lingua inglese&rdquo;</em>, which in a
+    large engineering-services company usually means something real: the customer may be German or
+    French, and the working language of the project is English.
+  </p>
+  <p>
+    Read the two phrasings as different requirements. <em>Buona</em> means you can read the manual and
+    write a clear ticket. <em>Fluente</em> means you can hold a technical conversation without the
+    other person adapting for you, and it will be tested &mdash; usually by switching languages in the
+    middle of the interview (<a href="71-the-interview.html">chapter 71</a>).
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="reading">Reading: the manual, the datasheet, the errata</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Almost everything you need to know about a chip is written in English, once, by its maker, in a
+    document of a thousand pages. Nobody reads it end to end. You learn to find the page you need and
+    to read that page very carefully.
+  </p>
+  <p>
+    The good news is that these documents use a small, repetitive vocabulary and very plain grammar.
+    They are written to be translated into machinery, not to be enjoyed &mdash; so the English in them
+    is far easier than a newspaper's.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Four document types, each with its own conventions:
+  </p>
+  <ul>
+    <li><strong>The datasheet</strong> &mdash; what the part <em>is</em>: pinout, electrical
+        characteristics, absolute maximum ratings, timing. Numbers with <em>min</em>, <em>typ</em> and
+        <em>max</em> columns, and the only column you may design against is the one that is
+        guaranteed. <em>Typical</em> is not a promise.</li>
+    <li><strong>The reference manual</strong> &mdash; what the peripherals <em>do</em>: register
+        descriptions, bit fields, and sequences. This is where you live.</li>
+    <li><strong>The application note</strong> &mdash; how to do one specific thing well, usually with
+        the parts the reference manual leaves implicit.</li>
+    <li><strong>The errata sheet</strong> &mdash; where the chip does not behave as the manual says.
+        Its structure is always <em>Description</em>, <em>Conditions</em>, <em>Impact</em>,
+        <em>Workaround</em>, and the habit of reading it <strong>before</strong> a long debugging
+        session rather than after one is a genuine professional marker.</li>
+  </ul>
+  <p>
+    The grammar of specification English is worth learning deliberately, because it is legally precise
+    rather than decorative: <strong>shall</strong> is an obligation, <strong>must</strong> usually a
+    physical necessity, <strong>should</strong> a recommendation you may deviate from with a reason,
+    <strong>may</strong> a permission, and <strong>shall not</strong> a prohibition. The same
+    vocabulary appears in requirements documents (<a href="64a-automotive-v-cycle.html">chapter
+    64a</a>) and in standards such as MISRA, where <em>mandatory</em>, <em>required</em> and
+    <em>advisory</em> are three different obligations
+    (<a href="65-misra-and-safety.html">chapter 65</a>).
+  </p>
+  <p>
+    Phrases that carry a warning and are easy to skim past: <em>&ldquo;the user must ensure
+    that&hellip;&rdquo;</em> (nothing enforces this and it will fail silently),
+    <em>&ldquo;undefined behaviour&rdquo;</em>, <em>&ldquo;this bit must be kept at its reset
+    value&rdquo;</em>, <em>&ldquo;the sequence is mandatory&rdquo;</em>, <em>&ldquo;access to this
+    register while &hellip; is ongoing is not allowed&rdquo;</em>, and the deceptively mild
+    <em>&ldquo;it is recommended to&hellip;&rdquo;</em>, which in a reference manual very often means
+    &ldquo;everybody who ignored this lost a week&rdquo;.
+  </p>
+</div>
+
+<h2 id="writing">Writing: the ticket that gets answered</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Sooner or later you will have to ask a stranger in another country for help: a vendor's support
+    desk, a forum, a colleague in another office. Whether you get a useful answer depends far more on
+    how you structure the message than on how good your English is.
+  </p>
+  <p>
+    The structure is always the same: what I am trying to do, what I did, what I expected, what
+    happened, and everything about my setup. Short sentences. No apologies, no story.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    A support request that gets a real answer instead of a form reply:
+  </p>
+  <pre><code>Subject: STM32F407 - SPI2 RX overrun when DMA is enabled (RM0090 rev 19)
+
+Setup:   STM32F407VG rev Z, CubeIDE 1.15, HAL 1.28.1, 168 MHz.
+         SPI2 slave, 8-bit, CPOL=0 CPHA=0, DMA1 stream 3 channel 0.
+
+Goal:    Receive 256-byte frames at 10 MHz using DMA.
+
+What I did:
+  1. Configure SPI2 and DMA as above (code below, 30 lines).
+  2. Start HAL_SPI_Receive_DMA() once, restart it in the callback.
+
+Expected: continuous reception, no data lost between frames.
+Actual:   OVR flag set on ~1 frame in 50. Data after the overrun
+          is shifted by one byte until SPI is reset.
+
+Already tried: increased DMA priority; disabled all other
+interrupts; verified on a scope that the master gaps frames by
+40 us.
+
+Question: is the restart in the callback too late at this clock,
+and is the circular-buffer approach in AN4031 the intended fix?</code></pre>
+  <p>
+    Every element there is doing work: the exact part revision and document revision, because answers
+    differ between them; a separation of <em>expected</em> from <em>actual</em>, which is the single
+    most useful habit in technical writing anywhere; the list of things already tried, which stops the
+    first three replies being suggestions you have already exhausted; and a specific question at the
+    end, so the reader knows what &ldquo;done&rdquo; looks like.
+  </p>
+  <p>
+    Register and protocol vocabulary you should be able to use without hesitating: <em>to assert</em>
+    and <em>to de-assert</em> a signal, <em>rising</em> and <em>falling edge</em>, <em>to latch</em>,
+    <em>to toggle</em>, <em>to poll</em>, <em>to sample</em>, <em>set</em> and <em>clear</em> a bit,
+    <em>read-modify-write</em>, <em>to be pulled up</em> or <em>down</em>, <em>floating</em>,
+    <em>glitch</em>, <em>jitter</em>, <em>duty cycle</em>, <em>throughput</em> against
+    <em>latency</em>, <em>upstream</em> and <em>downstream</em>, <em>a workaround</em>, <em>root
+    cause</em>, <em>to reproduce</em>, <em>intermittent</em>, <em>to narrow down</em>, <em>to roll
+    back</em>, <em>to ship</em>.
+  </p>
+  <p>
+    And the false friends that mark an Italian speaker instantly, all of them worth un-learning
+    consciously: <em>eventually</em> means <em>alla fine</em>, not <em>eventualmente</em> (say
+    <em>possibly</em> or <em>if needed</em>); <em>actually</em> means <em>in realt&agrave;</em>, not
+    <em>attualmente</em> (say <em>currently</em>); <em>to control</em> means <em>comandare</em>, not
+    <em>controllare</em> (say <em>to check</em>); <em>to pretend</em> is <em>fingere</em>, not
+    <em>pretendere</em> (say <em>to expect</em> or <em>to require</em>); <em>sensible</em> is
+    <em>ragionevole</em>, not <em>sensibile</em> (say <em>sensitive</em>); <em>to realize</em> is
+    <em>rendersi conto</em>, not <em>realizzare</em> (say <em>to implement</em>); <em>to assist</em>
+    is <em>aiutare</em>, not <em>assistere a</em> (say <em>to attend</em>); <em>to attend</em> is
+    <em>partecipare</em>, not <em>attendere</em> (say <em>to wait</em>); and <em>an argument</em> in
+    code is a parameter, while in a meeting it is a fight &mdash; the topic you meant is <em>a
+    subject</em> or <em>a point</em>.
+  </p>
+</div>
+
+<h2 id="speaking">Speaking: the call, the stand-up, the interview</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Speaking is the part people are afraid of, and the fear is usually about sounding wrong rather
+    than about being understood. In a technical call almost nobody is a native speaker, everybody
+    accepts simple grammar, and the only real failures are silence and pretending to have understood.
+  </p>
+  <p>
+    Two sentences remove most of the risk: <em>&ldquo;Sorry, could you repeat that?&rdquo;</em> and
+    <em>&ldquo;Let me repeat it back to make sure I understood.&rdquo;</em> Both make you look
+    careful, not weak.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Situations, in the order you will meet them:
+  </p>
+  <ul>
+    <li><strong>The daily stand-up</strong>, if the project has one. Thirty seconds, three sentences:
+        what you finished, what you are on, what is blocking you. Rehearse it once and it stops being
+        a language problem forever.</li>
+    <li><strong>The supplier or vendor call.</strong> Send an agenda beforehand, in writing, with the
+        numbers in it &mdash; then the hard information has already arrived and the call only has to
+        confirm it. Take notes and send a two-line summary afterwards: <em>&ldquo;To confirm what we
+        agreed&hellip;&rdquo;</em>. That habit is valued far beyond its cost, and it removes the
+        pressure to catch every word live.</li>
+    <li><strong>Spelling and numbers over a bad line.</strong> Learn to say hex aloud &mdash;
+        <em>zero-x-seven-E-eight</em>, or <em>seven-echo-eight</em> using the NATO alphabet &mdash; and
+        to say <em>one-two-five kilobits per second</em> rather than <em>a hundred twenty-five</em>.
+        Also: a decimal <em>point</em>, not a comma; <em>one point five volts</em>. Getting a number
+        wrong on a call costs a day of somebody's work.</li>
+    <li><strong>The interview in English</strong>, which is usually ten minutes in the middle of an
+        Italian conversation. It is a test of composure, not of vocabulary: describe your project,
+        describe one bug and how you found it, ask them a question back.</li>
+  </ul>
+  <p>
+    Pronunciation worth fixing once, because these words come up constantly and the Italian defaults
+    are hard to parse: <em>cache</em> (like <em>cash</em>, not <em>cachet</em>), <em>queue</em> (like
+    <em>Q</em>), <em>routine</em> and <em>router</em>, <em>suite</em> (like <em>sweet</em>),
+    <em>bus</em>, <em>bias</em>, <em>ground</em>, <em>bought</em> against <em>board</em>,
+    <em>issue</em>, <em>schedule</em>, <em>architecture</em>, <em>asynchronous</em>,
+    <em>deterministic</em>, <em>hierarchy</em>, <em>parameter</em> against <em>perimeter</em>. And the
+    two habits that carry more than any of them: <strong>slow down</strong> &mdash; speed is not
+    fluency &mdash; and <strong>stress the right word</strong>, because English carries meaning in
+    stress where Italian carries it in word order.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>english, written, spoken, reference, manual, datasheet, errata, application, note, vendor</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>&ldquo;I read English perfectly, so my English is fine&rdquo; &mdash; and then the
+    interview switches language for ten minutes and the technical answer collapses.</strong>
+  </p>
+  <p>
+    Reading is passive and enormously easier, and a course like this one is read in English all day
+    without ever exercising production. The gap between the two is invisible from the inside: you feel
+    fluent while reading and discover otherwise the first time you have to produce a sentence under
+    time pressure about something you understand perfectly in Italian.
+  </p>
+  <p>
+    The fix is narrow and takes weeks, not years, because the domain is small. <strong>Produce
+    something in English every day</strong>, however short: commit messages, a paragraph of notes at
+    the end of the day, the comment above a function. <strong>Speak out loud, alone, for two
+    minutes</strong> &mdash; explain what <code>volatile</code> does, explain why your last bug
+    happened &mdash; and record it once a week; the improvement is audible within a month, and the
+    exercise is nearly identical to the interview. <strong>Prepare the three set pieces</strong>: your
+    background, your project, one bug you solved end to end. Those three cover most of what any
+    English portion of an interview will ask.
+  </p>
+  <p>
+    The other half of the trap is on the CV. Claiming <em>C1</em> because you watch series in English
+    is checkable in ninety seconds and costs you the room; claiming <em>B2 written, B1 spoken,
+    improving</em> is honest, defensible, and in a junior role costs almost nothing &mdash;
+    <a href="70-the-cv.html">chapter 70</a> makes the same argument about claiming embedded
+    experience. If they need better English than you have, you want to know that on the day rather
+    than in month three.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> None of this needs a course, a teacher or a certificate, and all of it
+  is directly the job.</p>
+  <pre><code>1. Read one section of a real reference manual, aloud. Take the SPI
+   or the UART chapter of RM0090 (STM32F4) -- ten pages -- and read a
+   register description out loud. It forces pronunciation of exactly
+   the vocabulary you will use, and you learn the register at the
+   same time.
+
+2. Read one errata sheet, end to end. They are short. Pick your board's
+   MCU, and find one item whose Workaround you could actually
+   implement. Being able to say "I read the errata before I debug" is
+   a sentence with real weight in an interview.
+
+3. Write the support ticket from this chapter for a bug you already
+   solved -- setup, goal, steps, expected, actual, already tried, one
+   question. Then cut it by a third. Learning to write short is most
+   of learning to write in a second language.
+
+4. Post it somewhere real, once. The ST community forum, a GitHub
+   issue on a driver you use, a mailing list. The first message is the
+   only hard one, and a public, polite, well-structured technical
+   question is also a portfolio item.
+
+5. Two minutes out loud, weekly, recorded. Week 1: "what my project
+   does". Week 2: "the worst bug I had and how I found it". Week 3:
+   "what volatile is for". Listen back once. Do not transcribe, do not
+   correct grammar -- only fix the words you could not find, and learn
+   those.
+
+6. Switch your own working notes and commit messages to English
+   permanently. It costs nothing, it produces daily practice without
+   any extra time, and by the interview it is no longer a performance.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Technical English is a small language.</strong> The manual's vocabulary is narrow and
+        repetitive &mdash; it is trainable in weeks.</li>
+    <li><strong><em>Shall</em>, <em>should</em> and <em>may</em> are three different obligations</strong>,
+        in a datasheet and in a requirement alike.</li>
+    <li><strong>Design against the guaranteed column, never the typical one.</strong></li>
+    <li><strong>Read the errata before the debugging session</strong>, not after it.</li>
+    <li><strong>&ldquo;The user must ensure&rdquo; means nothing enforces it</strong> and it will fail
+        silently.</li>
+    <li><strong>Separate expected from actual</strong> in every report you write. It is the highest-value
+        habit in technical writing.</li>
+    <li><strong>State versions, revisions and what you already tried</strong>, and end with one
+        specific question.</li>
+    <li><strong>Un-learn the false friends</strong>: eventually, actually, control, pretend, sensible,
+        realize, assist, attend.</li>
+    <li><strong>Never pretend to have understood on a call.</strong> Ask for a repeat, then repeat it
+        back.</li>
+    <li><strong>Say hex and numbers digit by digit</strong>, and confirm them in writing afterwards.</li>
+    <li><strong>Reading is passive; production is the gap.</strong> Write something and speak two
+        minutes every day, and prepare the three set pieces.</li>
+    <li><strong>Claim the level you can defend</strong> &mdash; it is testable in ninety seconds.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Come se la cava con l&rsquo;inglese? &mdash; e poi, a met&agrave; colloquio: &lsquo;Can you tell me about your project, in English?&rsquo;&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Lo dico onesto, perch&eacute; tanto si verifica in due minuti: in lettura sono a mio
+    agio &mdash; reference manual, datasheet, errata, application note li leggo tutti i giorni,
+    &egrave; il novanta per cento del lavoro e l&rsquo;inglese tecnico &egrave; un vocabolario piccolo
+    e ripetitivo. Scritto me la cavo bene: quando apro un ticket a un supporto tecnico uso sempre la
+    stessa struttura &mdash; setup con le revisioni esatte del chip e del documento, cosa volevo fare,
+    cosa mi aspettavo, cosa &egrave; successo davvero, cosa ho gi&agrave; provato, e una domanda
+    precisa alla fine. Parlato sono pi&ugrave; lento, e non faccio finta: se non capisco chiedo di
+    ripetere e poi riassumo per conferma, e dopo una call mando due righe di riepilogo scritto. Su
+    numeri e esadecimali li scandisco cifra per cifra, perch&eacute; un numero sbagliato al telefono
+    costa una giornata a qualcuno. Sul CV ho scritto il livello che posso difendere, non uno in
+    pi&ugrave;. E se vuole andiamo avanti in inglese adesso, cos&igrave; se lo verifica direttamente
+    invece di fidarsi di una sigla.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

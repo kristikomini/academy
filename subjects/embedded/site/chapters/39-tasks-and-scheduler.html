@@ -18,25 +18,215 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 6 — Real-time and the RTOS <span>&rsaquo;</span> Chapter 39</p>
+<p class="crumbs">Part 6 &mdash; Real-time and the RTOS <span>&rsaquo;</span> Chapter 39</p>
 <h1>Tasks, the scheduler and priorities</h1>
-<p class="lede">Each task believes it owns the CPU. Ready, running, blocked, suspended, and how a priority choice becomes a missed deadline.</p>
+<p class="lede">
+  Each task is written as though it owns the CPU and runs forever. The scheduler maintains that
+  illusion, and the price of the illusion is that a priority you chose in five seconds decides
+  which deadline gets missed.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p>This chapter answers <em>"Sviluppare e ottimizzare firmware in C/C++ su microcontrollori e sistemi operativi Real-Time (RTOS)"</em> &mdash; a line that appeared in the adverts this course was built from.</p>
+  <p>
+    This chapter answers <em>&ldquo;Sviluppare e ottimizzare firmware in C/C++ su microcontrollori e
+    sistemi operativi Real-Time (RTOS)&rdquo;</em>. It is the concrete half of
+    <a href="37-what-real-time-means.html">chapter 37</a>: that one defines the deadline, this one
+    is the mechanism you use to meet it.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="illusion">One CPU, several programs that do not know it</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A task is an ordinary function with a loop in it that never ends. You write it as though it is
+    the only thing running: read the sensor, wait a bit, read it again, forever.
+  </p>
+  <p>
+    There is only one processor, so only one task really runs at a time. The scheduler swaps between
+    them fast enough, and at the right moments, that each one can be written as though nothing else
+    exists. That is the whole reason an RTOS is worth having: you stop writing one enormous machine
+    that does everything a bit at a time.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    A task is a function plus its <strong>own stack</strong> plus a control block holding its saved
+    registers, priority and state. It never returns &mdash; the loop is infinite by contract, and a
+    task that falls off the end of its function is undefined behaviour in most kernels (FreeRTOS
+    calls a configurable hook and then usually traps).
+  </p>
+  <p>
+    Its <strong>states</strong>, and the transitions between them are most of what you reason about:
+  </p>
+  <ul>
+    <li><strong>Running</strong> &mdash; on the CPU. Exactly one task, always.</li>
+    <li><strong>Ready</strong> &mdash; could run, but something higher-priority is running.</li>
+    <li><strong>Blocked</strong> &mdash; waiting for something with a timeout: a queue item, a
+        semaphore, a delay. <em>Costs no CPU at all</em>, which is the distinction that matters.</li>
+    <li><strong>Suspended</strong> &mdash; taken out of scheduling explicitly, waiting for nothing.
+        Rare, and usually a sign the design wants a different primitive.</li>
+  </ul>
+  <p>
+    A <strong>context switch</strong> saves the running task's registers to its stack, updates the
+    control block, and restores another's. On a Cortex-M the kernel does this inside the
+    <strong>PendSV</strong> handler, set to the lowest interrupt priority deliberately, so that a
+    switch can never pre-empt a real device interrupt &mdash; and <strong>SysTick</strong> provides
+    the periodic tick that expires delays and timeouts
+    (<a href="26-interrupts-and-nvic.html">chapter 26</a>). Those two exceptions are the entire
+    scheduler mechanism on this architecture, which is worth knowing because it explains the
+    priority rules in <a href="42-isr-and-the-rtos.html">chapter 42</a>.
+  </p>
+  <p>
+    The scheduler is <strong>pre-emptive</strong> and <strong>priority-based</strong>: at every
+    moment, the highest-priority <em>ready</em> task runs. It switches the instant a higher-priority
+    task becomes ready &mdash; typically inside the interrupt that made it ready &mdash; not at the
+    next tick. Among tasks of equal priority, the kernel time-slices round-robin if configured to,
+    and otherwise a running task keeps the CPU until it blocks.
+  </p>
+</div>
+
+<h2 id="priorities">Choosing priorities, which is the actual design</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Priority is not importance. It is urgency &mdash; how soon this has to happen after it becomes
+    possible. Logging to a memory card is very important and not at all urgent; toggling a motor
+    output is not important at all and must happen now.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The single most common beginner error is assigning priority by <em>importance</em>. The safety
+    check feels like the most important thing in the system, so it gets the top priority, and then it
+    spends its life running a 40 ms comparison that starves the motor commutation. Priority is about
+    <strong>deadline tightness</strong>, nothing else.
+  </p>
+  <p>
+    The defensible default is <strong>rate-monotonic</strong>: for periodic tasks whose deadline
+    equals their period, assign priority by rate &mdash; shorter period, higher priority. It is
+    provably optimal among fixed-priority schemes, and being able to name it is worth more in an
+    interview than any particular assignment you made.
+  </p>
+  <p>
+    Practical rules that follow from it:
+  </p>
+  <p>
+    <strong>Few levels, not many.</strong> Three or four bands &mdash; control, communication,
+    housekeeping &mdash; is easier to reason about than fifteen distinct numbers, and it makes the
+    intent readable. Define them as named constants, never as bare integers at the call site.
+  </p>
+  <p>
+    <strong>Every task must block.</strong> A task that never blocks at its own priority starves
+    everything below it permanently. This is the number-one cause of &ldquo;the RTOS is broken&rdquo;
+    reports, and it is not the RTOS.
+  </p>
+  <p>
+    <strong>Use <code>vTaskDelayUntil</code> for periodic work, not <code>vTaskDelay</code>.</strong>
+    <code>vTaskDelay(10)</code> waits 10 ms <em>from now</em>, so the period becomes 10 ms plus
+    however long the body took, and it drifts. <code>vTaskDelayUntil</code> wakes at a fixed
+    absolute time, which is what &ldquo;every 10 ms&rdquo; actually means.
+  </p>
+  <p>
+    <strong>The idle task is not wasted time.</strong> It runs at priority 0, frees memory from
+    deleted tasks, and is where you put the sleep instruction and the CPU-load measurement. A system
+    whose idle task never runs has no headroom, and you want to know that number.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>task, thread, stack, tcb, scheduler, pre-emptive, priority, ready, running, blocked</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>Every task needs its own stack, sized for its worst case, and getting it wrong does not
+    produce an error message.</strong> It produces a variable in an unrelated task changing by
+    itself.
+  </p>
+  <p>
+    Each stack must hold that task's deepest call chain, its locals, anything the compiler spills,
+    and &mdash; because interrupts are stacked onto whichever stack is current &mdash; the deepest
+    legal interrupt nesting chain on top. A <code>printf</code> or a floating-point library call in
+    a task that you sized for 128 words will quietly walk off the end and into whatever is next in
+    RAM.
+  </p>
+  <p>
+    Do not guess. Turn on the kernel's stack painting (FreeRTOS fills stacks with a known pattern and
+    <code>uxTaskGetStackHighWaterMark</code> reports the closest approach), run the system through
+    its worst paths, and read the watermarks. Size to the measured worst case plus a real margin,
+    and re-check after adding any library. <a href="12-stack-overflow.html">Chapter 12</a> is the
+    long version.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> On a board, or in the FreeRTOS POSIX simulator on a PC &mdash; scheduling
+  behaviour reproduces in both.</p>
+  <pre><code>1. Three tasks, priorities 1, 2 and 3, each toggling its own GPIO pin.
+   Put them on a logic analyser. You are now watching the scheduler,
+   which is otherwise entirely invisible.
+
+2. Make the priority-2 task busy-wait for 500 ms instead of blocking:
+
+     for (volatile uint32_t i = 0; i &lt; 5000000; i++) { }
+
+   Priority 1 stops completely. Priority 3 is unaffected. That single
+   picture is what "starvation" means, and it is the most common cause
+   of an RTOS bug report.
+
+3. Replace the busy-wait with vTaskDelay(500). Priority 1 comes back,
+   because BLOCKED costs no CPU while READY-but-not-running does.
+
+4. Now measure the drift. Task body takes ~3 ms; use vTaskDelay(10) and
+   timestamp every wake for a minute. The period is 13 ms, not 10, and
+   it wanders. Switch to vTaskDelayUntil and it is 10 ms, flat.
+
+5. Finally, read uxTaskGetStackHighWaterMark for each task after the
+   run. Then add one printf to a task and read it again. That drop is
+   the reason stack sizes are measured rather than guessed.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>A task is a function plus its own stack plus a control block</strong>, and its loop never returns.</li>
+    <li><strong>Blocked costs no CPU; ready-but-not-running does not run.</strong> That distinction is most of RTOS reasoning.</li>
+    <li><strong>The highest-priority ready task runs, and it switches the instant one becomes ready</strong> &mdash; not at the next tick.</li>
+    <li><strong>Priority is urgency, not importance.</strong> Assigning by importance is the classic beginner error.</li>
+    <li><strong>Rate-monotonic is the defensible default:</strong> shorter period, higher priority.</li>
+    <li><strong>Few named priority bands beat many bare numbers.</strong></li>
+    <li><strong>Every task must block somewhere</strong>, or it starves everything below it permanently.</li>
+    <li><strong>vTaskDelayUntil for periodic work</strong> &mdash; vTaskDelay drifts by the length of the body.</li>
+    <li><strong>Size every stack from a measured high-water mark</strong>, not a guess, and re-measure after adding a library.</li>
+    <li><strong>On Cortex-M the scheduler is PendSV plus SysTick</strong>, with PendSV at the lowest priority so a switch never pre-empts a device interrupt.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Come assegna le priorit&agrave; ai task?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Parto da un principio: la priorit&agrave; &egrave; urgenza, non importanza. L&rsquo;errore
+    tipico &egrave; dare la priorit&agrave; massima al controllo di sicurezza perch&eacute; &lsquo;&egrave;
+    la cosa pi&ugrave; importante&rsquo;, e poi quello si mangia la CPU con un confronto da 40
+    millisecondi e affama la commutazione del motore. Come default uso rate-monotonic: per i task
+    periodici con scadenza uguale al periodo, periodo pi&ugrave; corto significa priorit&agrave;
+    pi&ugrave; alta &mdash; &egrave; dimostrabilmente ottimale fra gli schemi a priorit&agrave; fissa.
+    In pratica tengo tre o quattro fasce con nomi &mdash; controllo, comunicazione, servizio &mdash;
+    non quindici numeri sparsi. Due regole che non rompo: ogni task deve bloccarsi da qualche parte,
+    altrimenti affama per sempre tutto quello che sta sotto, ed &egrave; la causa numero uno dei
+    &lsquo;non funziona l&rsquo;RTOS&rsquo;; e per il lavoro periodico uso
+    <code>vTaskDelayUntil</code> e non <code>vTaskDelay</code>, perch&eacute; il secondo aspetta da
+    adesso e il periodo diventa dieci millisecondi pi&ugrave; la durata del corpo, e deriva. Gli
+    stack non li stimo: faccio girare il sistema sui percorsi peggiori e leggo gli high water
+    mark.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

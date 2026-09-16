@@ -18,25 +18,306 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 10 — Debugging, testing and quality <span>&rsaquo;</span> Chapter 66</p>
+<p class="crumbs">Part 10 &mdash; Debugging, testing and quality <span>&rsaquo;</span> Chapter 66</p>
 <h1>Git, code review and the release</h1>
-<p class="lede">Branching for firmware, reviewing code you cannot run, tagging a build that ships in metal, and knowing which binary is in the field.</p>
+<p class="lede">
+  The version control part is the same everywhere. What is different in firmware is the release: a
+  binary that ends up inside metal, in somebody's hands, for ten years &mdash; and the question you
+  must always be able to answer, which is <em>exactly which software is on that board</em>.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> Universal in the market and absent from this advert. It is also how the hardware team's fix and yours end up in the same binary.</p>
+  <p>
+    <strong>Not in the anchor advert</strong>, which never mentions version control &mdash; and that
+    omission is normal rather than meaningful. The second advert in the corpus does name it:
+    <em>&ldquo;Dimestichezza con sistemi di versionamento del codice, preferibilmente Git&rdquo;</em>.
+  </p>
+  <p>
+    <em>Dimestichezza</em> is a modest word, and it is worth reading correctly: nobody expects
+    rebase-fu from a junior. They expect that you will not lose work, will not force-push over
+    somebody, and can explain what you changed. The release half of this chapter is what separates a
+    candidate who has used Git at university from one who has shipped something.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="branching">Branching that fits hardware</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A branch is a private copy of the project where you can make a mess safely. You work there, you
+    show it to somebody, and then it joins the main line. That part is the same as any other
+    software.
+  </p>
+  <p>
+    The difference with firmware is that a version can escape onto a physical object. Once a hundred
+    boards have shipped with version 1.4 inside them, that exact code must stay findable and
+    buildable for years &mdash; because a fault report will arrive and the only useful question is
+    what was actually running.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    A workable model for a small firmware team, without ceremony:
+  </p>
+  <ul>
+    <li><strong>One integration branch</strong> that always builds and always passes the host tests.
+        Not &ldquo;usually&rdquo;: a red main branch stops being a reference point, and once it is not
+        a reference point, nobody can tell whether their own change broke something.</li>
+    <li><strong>Short-lived feature branches</strong>, reviewed, merged, deleted. Long-lived branches
+        are where firmware projects go to die, because the hardware moves under them &mdash; a pin
+        reassignment or a driver change lands on main and the two-month branch now conflicts with
+        reality rather than with text.</li>
+    <li><strong>A tag for every build that leaves the building.</strong> Tags are the release record,
+        and an annotated tag can carry who, when and why.</li>
+    <li><strong>A maintenance branch per shipped version</strong>, created from the tag, and only when
+        a fix for shipped hardware is genuinely needed. Create it on demand, not in advance.</li>
+  </ul>
+  <p>
+    <strong>Commits should be readable by the person bisecting them in two years.</strong> One logical
+    change per commit; a subject line that says what changed and why, not &ldquo;fix&rdquo;; and the
+    body carrying the reasoning, because the diff already shows the what. In firmware add the
+    context nobody else can recover: the board revision it was tested on, the scope measurement that
+    proved it, the datasheet page that justifies the magic number. That is the difference between a
+    log and an engineering record.
+  </p>
+  <p>
+    Two firmware-specific habits. <strong>Vendor code and generated code get their own commits</strong>
+    &mdash; a CubeMX regeneration touches hundreds of lines, and mixing it with your change makes both
+    unreviewable; keep it separate and say which tool version produced it. And <strong>binaries do not
+    belong in Git</strong>, with one exception: a released hex, tagged, may be worth archiving
+    somewhere permanent, and a release artefact store is the better home. The
+    <a href="64a-automotive-v-cycle.html">baseline idea</a> from the automotive chapter says the same
+    thing more formally.
+  </p>
+</div>
+
+<h2 id="review">Reviewing code you cannot run</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    In most software you can check out somebody's change and try it. In firmware you often cannot:
+    there is one board, and it is on their desk. So the review has to be done by reading &mdash; which
+    means the reviewer needs to know what to look for rather than what to click.
+  </p>
+  <p>
+    The good news is that the list is short, and almost all firmware review findings are on it.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The checklist that finds real defects, in the order they occur:
+  </p>
+  <ul>
+    <li><strong>Concurrency.</strong> Is any variable touched by both an ISR and the main context?
+        Then it wants <code>volatile</code> and, if it is wider than a word or read as a pair, a
+        critical section (<a href="06-const-and-volatile.html">chapter 6</a>,
+        <a href="42-isr-and-the-rtos.html">chapter 42</a>). This is the single most productive
+        question in a firmware review.</li>
+    <li><strong>Blocking.</strong> Does anything wait in a place that must not wait &mdash; a delay in
+        an ISR, an unbounded <code>while</code> on a hardware flag with no timeout? Every wait on
+        hardware needs an escape and a defined behaviour when it expires.</li>
+    <li><strong>Buffers and indices.</strong> Length checks before a copy, index types that cannot
+        wrap, no <code>strcpy</code> family (<a href="14-strings-and-buffers.html">chapter 14</a>).</li>
+    <li><strong>Error paths.</strong> Is every returned status examined? A driver call whose result is
+        ignored is the trap door under most field failures.</li>
+    <li><strong>Resource lifetime.</strong> Is everything initialised before an interrupt that uses it
+        is enabled? Interrupt-before-init is a classic, and it appears only at cold start on a cold
+        day.</li>
+    <li><strong>Layering.</strong> Does the diff put a register access somewhere it does not belong
+        (<a href="35-firmware-architecture.html">chapter 35</a>)?</li>
+    <li><strong>Evidence.</strong> How was this tested? &ldquo;It works&rdquo; is not an answer; a
+        host unit test, a scope capture or a log excerpt is.</li>
+  </ul>
+  <p>
+    On being reviewed: a pull request should be small enough to read in twenty minutes, should say in
+    its description what it does, how it was verified and what is still open, and should not mix a
+    refactor with a behaviour change &mdash; a reviewer cannot see a bug through a thousand moved
+    lines. On reviewing: separate <em>must fix</em> from <em>suggestion</em> explicitly, ask a question
+    where you are unsure rather than asserting, and remember that in a firmware team the reviewer is
+    often the only other person who will ever read that code before it is in a customer's machine.
+    <a href="65-misra-and-safety.html">Static analysis and MISRA</a> belong in CI, not in review
+    comments &mdash; a human arguing about brace placement is a wasted human.
+  </p>
+</div>
+
+<h2 id="release">The release, and knowing what is in the field</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Releasing firmware means: decide this is the version, give it a number, build it in a way anybody
+    can repeat, put that number <em>inside</em> the binary so the device can tell you what it is
+    running, and keep the pieces &mdash; the binary, the map, the tag, the notes &mdash; somewhere they
+    will still be in five years.
+  </p>
+  <p>
+    The reason for all of it is one moment: a board comes back, and somebody has to say what software
+    it has and what changed since the one that worked.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    A release procedure that fits on a card:
+  </p>
+  <ol>
+    <li><strong>Tag</strong> the commit, annotated, with a version. Semantic versioning works if you
+        define what a breaking change means for a device &mdash; usually a change to a protocol, a
+        parameter layout, or bootloader compatibility.</li>
+    <li><strong>Build from the tag, clean, in CI</strong>, with the pinned toolchain from
+        <a href="36-build-and-linker-script.html">chapter 36</a>. Never ship a binary built on
+        somebody's laptop; it cannot be reproduced and nobody knows what was in the working tree.</li>
+    <li><strong>Embed the identity</strong>: version string and <code>git describe</code> output
+        &mdash; which gives you the tag, the distance from it, the short hash and a dirty marker
+        &mdash; compiled in and readable over the diagnostic interface, alongside the hardware
+        revision.</li>
+    <li><strong>Archive the artefacts</strong>: hex or binary, the ELF (for decoding a future crash),
+        the map, the build log with the toolchain version, and the test report.</li>
+    <li><strong>Write release notes</strong> aimed at the people who will read them &mdash; production,
+        service, the customer &mdash; not a commit log. What changed, what it fixes, what it breaks,
+        and whether the bootloader or the tooling must be updated with it.</li>
+    <li><strong>State the compatibility</strong>: which hardware revisions this runs on, which
+        bootloader it needs, and whether a downgrade is possible. If a parameter block changed layout,
+        say what happens to the parameters of a device being updated &mdash; because something will
+        happen to them either way.</li>
+  </ol>
+  <p>
+    <strong>Versioning is a product decision as much as an engineering one.</strong> A device that
+    cannot report its own version is a device whose field population is unknown, and an unknown field
+    population makes every subsequent decision &mdash; recall, update campaign, root cause &mdash;
+    guesswork. It is two lines of code and it is the difference between a product and a prototype.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>git, branch, tag, merge, rebase, pull, request, code, review, checklist</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>A board comes back from a customer, and nobody can say what is on it.</strong>
+  </p>
+  <p>
+    The chain of small conveniences that leads there is always the same, and each link is reasonable
+    on its own. Somebody flashed a quick fix from their laptop to unblock a test. The working tree
+    had one uncommitted line. The version constant was not bumped because &ldquo;it is only a
+    test&rdquo;. The board went to a customer because it was the only one available. Six months later
+    the fault report arrives, the version says 1.4.0, main says 1.4.0, and the two are not the same
+    software.
+  </p>
+  <p>
+    Everything in this chapter exists to break one link of that chain. <strong>Embed
+    <code>git describe</code>, including the dirty flag</strong>, so that a binary built from modified
+    sources says so out loud &mdash; that one change alone makes the story above self-diagnosing.
+    <strong>Refuse to release from a laptop</strong>, and make CI the only path to an artefact anybody
+    may flash onto something that leaves. And <strong>make the device report version, Git hash and
+    hardware revision over its diagnostic interface</strong> &mdash; in automotive that is exactly what
+    <a href="49b-uds.html">ReadDataByIdentifier</a> is for, and in an industrial product it is one
+    Modbus register block.
+  </p>
+  <p>
+    The second, quieter version of the same trap: a released version that no longer builds. The
+    toolchain moved, a submodule's remote disappeared, a vendor library was downloaded rather than
+    vendored. Building every tag in CI on a schedule sounds paranoid until the first time a five-year
+    -old product needs one line changed.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> All of this is doable on your own project today, and it is one of the
+  few things on a junior CV that reads as professional rather than academic.</p>
+  <pre><code>1. Make your build stamp itself. In the Makefile:
+
+     GIT_VER := $(shell git describe --tags --always --dirty)
+     CFLAGS  += -DFW_VERSION=\"$(GIT_VER)\"
+
+   Print it at startup on the UART. Then modify a file WITHOUT
+   committing, rebuild, and watch "-dirty" appear. That suffix is the
+   whole point of this chapter.
+
+2. Tag and release once, properly, on a personal project:
+
+     git tag -a v0.1.0 -m "First release: <what it does>"
+     git push --tags
+
+   Then write the release notes for an imaginary service technician
+   rather than for yourself. It is harder than it sounds, and it is
+   the skill the advert is really testing.
+
+3. Practise bisect, because it is the Git command that pays best in
+   firmware. Create a repo, commit 20 small changes, break something
+   in the middle, then:
+
+     git bisect start; git bisect bad; git bisect good HEAD~20
+
+   Five steps to the culprit. Do it once so that you reach for it
+   under pressure.
+
+4. Practise recovering. Delete a branch, then get it back with
+   `git reflog`. Reset --hard by mistake, then recover the commit the
+   same way. Knowing that almost nothing is really lost is what makes
+   somebody calm with Git, and calm is what "dimestichezza" means.
+
+5. Review somebody else's firmware. Find a small open-source driver
+   on GitHub, read one file against the seven-point checklist above,
+   and write the review you would post. Two or three real findings is
+   a good result -- and it is an excellent thing to be able to talk
+   about in an interview, because almost no junior has done it.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Main always builds and passes the host tests.</strong> A red main is not a reference
+        point.</li>
+    <li><strong>Short branches.</strong> In firmware the hardware moves under a long one.</li>
+    <li><strong>One logical change per commit</strong>, and a message that records the reasoning, the
+        board revision and the evidence.</li>
+    <li><strong>Generated and vendor code gets its own commit</strong>, naming the tool version.</li>
+    <li><strong>Review for concurrency, blocking, buffers, error paths, init order, layering and
+        evidence.</strong> Leave style to the tools.</li>
+    <li><strong>A pull request is small, described, and does not mix a refactor with a behaviour
+        change.</strong></li>
+    <li><strong>Every build that leaves the building is tagged and built by CI from that tag</strong>,
+        with a pinned toolchain.</li>
+    <li><strong>Embed <code>git describe</code> with the dirty flag</strong>, and let the device report
+        it over its diagnostic interface.</li>
+    <li><strong>Archive hex, ELF, map, build log and test report.</strong> The ELF is how you decode a
+        crash five years from now.</li>
+    <li><strong>Release notes are for service and production</strong>, and must state hardware and
+        bootloader compatibility.</li>
+    <li><strong>If a device cannot report its own version, its field population is unknown</strong>
+        &mdash; and every decision after that is guesswork.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Come gestisce il versionamento e il rilascio di un firmware?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Git, con un ramo principale che deve sempre compilare e passare i test host, rami di
+    feature corti &mdash; nel firmware un ramo lungo &egrave; un problema, perch&eacute; nel frattempo
+    cambia l&rsquo;hardware sotto &mdash; e un tag per ogni build che esce dall&rsquo;azienda. Nei
+    commit ci metto anche le cose che dal diff non si recuperano: su quale revisione di scheda
+    &egrave; stato provato, la misura che lo dimostra, la pagina del datasheet del numero magico. Il
+    codice generato da CubeMX lo tengo in commit separati, se no la revisione &egrave; illeggibile.
+    Sul rilascio la regola che considero non negoziabile &egrave; che il binario lo produce la CI dal
+    tag, con toolchain fissata, mai il mio portatile: e dentro il binario ci va
+    <code>git describe</code> con il flag dirty, leggibile dal dispositivo via diagnostica &mdash; in
+    automotive con un ReadDataByIdentifier, in ambito industriale con un blocco di registri Modbus. Il
+    motivo &egrave; molto concreto: quando torna indietro una scheda dal campo, la prima domanda
+    &egrave; quale software ha sopra. Se qualcuno ha flashato al volo una modifica non committata e la
+    versione dice 1.4.0 come il main, ma non sono lo stesso software, quella scheda non &egrave;
+    diagnosticabile. Il suffisso dirty risolve da solo met&agrave; di quella storia. E archivio hex,
+    ELF, mappa, log di build e report di test: l&rsquo;ELF &egrave; l&rsquo;unica cosa che fra cinque
+    anni mi permette di decodificare un crash.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

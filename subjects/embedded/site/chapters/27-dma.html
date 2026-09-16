@@ -18,25 +18,220 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 4 — The microcontroller itself <span>&rsaquo;</span> Chapter 27</p>
+<p class="crumbs">Part 4 &mdash; The microcontroller itself <span>&rsaquo;</span> Chapter 27</p>
 <h1>DMA</h1>
-<p class="lede">Moving bytes without the CPU: the feature that makes high-rate serial possible, and the cache and coherency traps that come with it.</p>
+<p class="lede">
+  Hardware that moves bytes while the CPU does something else. It is what makes a fast serial link
+  and an idle processor compatible &mdash; and it brings a class of bug that only exists because two
+  things now touch the same memory.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The difference between a UART that keeps up at 921600 baud and one that drops bytes, and a favourite follow-up question.</p>
+  <p>
+    <strong>Not named in this advert.</strong> It is nevertheless the difference between a UART that
+    keeps up at 921600 baud and one that drops bytes
+    (<a href="46-uart.html">chapter 46</a>), and it is a favourite follow-up once you mention high
+    data rates.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="what">A second mover on the bus</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Normally the processor moves every byte itself: read it from the serial port, write it into
+    memory, one at a time. If bytes arrive quickly, that is all the processor does.
+  </p>
+  <p>
+    DMA is a small separate machine whose only job is copying. You tell it where from, where to, and
+    how many &mdash; and then it does the whole transfer on its own and tells you when it has
+    finished. The processor is free the entire time.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    A DMA controller is a <strong>second bus master</strong>. It arbitrates for the bus alongside the
+    core, so a transfer is not free &mdash; it steals bus cycles &mdash; but it costs no
+    <em>instructions</em>, and crucially no interrupts per byte.
+  </p>
+  <p>
+    Configuration is always the same five questions: source address, destination address, whether
+    each increments, the transfer width, and the count. Plus the mode:
+  </p>
+  <ul>
+    <li><strong>Normal</strong> &mdash; transfer N items and stop. For a known-length write.</li>
+    <li><strong>Circular</strong> &mdash; on reaching the end, wrap to the start and continue
+        forever. This is what makes a receive ring buffer work with zero CPU involvement, and it is
+        the mode that matters most (<a href="46-uart.html">chapter 46</a>).</li>
+  </ul>
+  <p>
+    Three interrupts are available and you usually want the first two:
+    <strong>half-transfer</strong>, <strong>transfer-complete</strong>, and <strong>transfer
+    error</strong>. Half-transfer exists so that in circular mode you can process the first half of
+    the buffer while the controller is filling the second &mdash; a double-buffer with one buffer,
+    and the standard idiom for continuous ADC sampling or audio.
+  </p>
+  <p>
+    The remaining-count register is the other thing worth knowing: it counts <em>down</em>, so
+    <code>received = buffer_size - remaining</code> tells you how far the transfer has got at any
+    moment. That is precisely how the Modbus idle-line trick measures a variable-length frame
+    (<a href="50-modbus-rtu.html">chapter 50</a>).
+  </p>
+  <p>
+    On STM32, note that DMA request routing is not arbitrary: each peripheral can only reach certain
+    channels or streams. On F4-class parts this is a fixed table in the reference manual and a common
+    source of &ldquo;the DMA does not trigger&rdquo;; on newer families a DMAMUX makes any request
+    reachable from any channel, which removes the problem entirely.
+  </p>
+</div>
+
+<h2 id="traps">Two things now touch the same memory</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The convenience has a price. Your program and the copying machine are both looking at the same
+    buffer at the same time, and neither tells the other what it is doing.
+  </p>
+  <p>
+    So you have to be careful about where that buffer lives, how long it lives, and when it is safe
+    to look at.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    <strong>The buffer must outlive the transfer.</strong> Starting a DMA from a local array and
+    returning from the function is a use-after-free with hardware doing the writing: the controller
+    keeps filling stack memory that other code is now using. Buffers are <code>static</code> or
+    file-scope, always.
+  </p>
+  <p>
+    <strong>The compiler does not know the DMA exists.</strong> Mark buffers <code>volatile</code>
+    &mdash; or at minimum be certain the accesses around the transfer are not reordered or cached in
+    a register (<a href="06-const-and-volatile.html">chapter 06</a>). Note this is necessary and not
+    sufficient, which is the next point.
+  </p>
+  <p>
+    <strong>The buffer must be in memory the DMA controller can reach.</strong> On an STM32F4 the
+    core-coupled CCM RAM is invisible to DMA1 and DMA2; a buffer placed there produces a transfer
+    error or silent nothing. On an H7, DMA1 and DMA2 cannot reach the fast DTCM where the linker
+    puts things by default, which is why H7 examples place DMA buffers in a specific SRAM section.
+    This is a linker-script question (<a href="36-build-and-linker-script.html">chapter 36</a>) and
+    it is the second most common DMA failure.
+  </p>
+  <p>
+    <strong>Alignment and width.</strong> A 32-bit transfer needs 32-bit-aligned addresses; a
+    mismatch between peripheral width and memory width has defined but surprising packing behaviour.
+    Check both against the reference manual rather than assuming.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>dma, direct, memory, access, channel, stream, circular, mode, half, transfer</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>On a part with a data cache &mdash; Cortex-M7, so STM32F7 and H7 &mdash; DMA and the CPU
+    can hold two different versions of the same memory, and nothing warns you.</strong> This is the
+    single nastiest DMA bug and it is worth being able to describe precisely, because it is a
+    favourite interview question for anyone claiming H7 experience.
+  </p>
+  <p>
+    The cache sits between the core and the bus; the DMA controller sits on the bus. So:
+  </p>
+  <ul>
+    <li><strong>Receive.</strong> DMA writes new data into SRAM. The core reads the buffer and gets
+        a <em>stale cache line</em> from before the transfer. You must
+        <strong>invalidate</strong> the cache range after the transfer completes and before reading.</li>
+    <li><strong>Transmit.</strong> The core writes the buffer; with a write-back cache the data is
+        still sitting in the cache, not in SRAM. DMA reads SRAM and sends the <em>old</em> contents.
+        You must <strong>clean</strong> the cache range before starting the transfer.</li>
+  </ul>
+  <p>
+    The symptom is the worst possible kind: it works in debug (where the cache is often disabled or
+    the timing differs), works with small buffers, works most of the time, and corrupts occasionally
+    under load. Two fixes, and the second is usually better: call
+    <code>SCB_CleanDCache_by_Addr</code> and <code>SCB_InvalidateDCache_by_Addr</code> around every
+    transfer &mdash; noting that they operate on 32-byte cache lines, so your buffer must be
+    32-byte aligned and a multiple of 32 bytes or you will corrupt a neighbour &mdash; or configure an
+    MPU region covering the DMA buffers as non-cacheable and stop thinking about it.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> This one genuinely wants a board, and it is among the best reasons to have one.</p>
+  <pre><code>1. Start with UART receive in circular DMA plus idle-line detection
+   (chapter 46). Toggle a GPIO pin inside the IDLE interrupt and put it
+   on an analyser alongside the serial line. You will see ONE pulse per
+   message instead of one per byte.
+
+2. Measure what that buys. Instrument the idle task with a pin
+   (chapter 43) and compare CPU load at 115200 baud between:
+
+     - interrupt per byte
+     - circular DMA + IDLE
+
+   Then raise the baud rate until the interrupt version drops bytes and
+   note where. That number is your own answer to "when do you need DMA?"
+
+3. Break it on purpose, three ways, and learn each failure's signature:
+
+     - put the DMA buffer on the stack of a function that returns
+       -> corruption somewhere unrelated, intermittently
+     - place the buffer in CCM RAM (F4) or DTCM (H7)
+       -> transfer error, or simply nothing, with no obvious cause
+     - forget the half-transfer interrupt in circular mode and process
+       only on complete
+       -> the first half is overwritten while you are still reading it,
+          at high rates only
+
+4. On an F7 or H7 with the D-cache enabled: run a receive without
+   invalidating and watch stale data appear under load. Then add the
+   invalidate, with a 32-byte-aligned buffer. Then try the MPU
+   non-cacheable region instead and notice how much less there is to
+   get wrong.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>DMA is a second bus master:</strong> it costs bus cycles, but no instructions and no interrupt per byte.</li>
+    <li><strong>Circular mode plus the half-transfer interrupt</strong> is how you process one half while the other fills.</li>
+    <li><strong>The remaining-count register counts down</strong>, so buffer size minus remaining is how far the transfer has got &mdash; the basis of variable-length frame reception.</li>
+    <li><strong>DMA buffers must be static or file-scope.</strong> A local array plus a return is a use-after-free with hardware writing.</li>
+    <li><strong>The buffer must live in memory the controller can reach</strong> &mdash; not CCM on F4, not DTCM on H7.</li>
+    <li><strong>Request routing is restricted on older families</strong> and free with a DMAMUX on newer ones.</li>
+    <li><strong>With a data cache, clean before transmit and invalidate after receive</strong>, or the CPU and DMA see different data.</li>
+    <li><strong>Cache maintenance works on 32-byte lines</strong>, so align and pad the buffer or you corrupt its neighbour.</li>
+    <li><strong>An MPU non-cacheable region for DMA buffers removes the whole class of bug.</strong></li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Ha usato il DMA? Quali problemi ha incontrato?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;S&igrave;, soprattutto in ricezione su UART: DMA circolare pi&ugrave; interrupt di
+    linea idle, cos&igrave; ho un interrupt per messaggio invece di uno per byte e la lunghezza la
+    ricavo dal contatore residuo del DMA, che decrementa. I problemi sono sempre gli stessi tre.
+    Primo, il buffer deve sopravvivere al trasferimento: se parte da un array locale e la funzione
+    ritorna, il controller continua a scrivere nello stack che nel frattempo usa qualcun altro, e la
+    corruzione salta fuori altrove. Secondo, il buffer deve stare in una memoria che il controller
+    raggiunge davvero: sugli F4 la CCM non &egrave; visibile al DMA, sugli H7 la DTCM non lo &egrave;
+    per DMA1 e DMA2, e il sintomo &egrave; un transfer error oppure semplicemente niente. Terzo, e
+    &egrave; il pi&ugrave; cattivo, sui Cortex-M7 con la data cache attiva: la cache sta fra il core
+    e il bus, il DMA sta sul bus, quindi in ricezione io leggo una linea di cache vecchia e in
+    trasmissione il DMA legge la SRAM mentre il mio dato &egrave; ancora in cache. Va fatta invalidate
+    dopo la ricezione e clean prima della trasmissione, con il buffer allineato a 32 byte
+    perch&eacute; le operazioni lavorano per linee di cache. Se posso preferisco configurare una
+    regione MPU non cacheable per i buffer DMA, cos&igrave; il problema non si pone: funziona in
+    debug e si corrompe sotto carico &egrave; il tipo di bug che non voglio.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

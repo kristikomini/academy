@@ -18,25 +18,217 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 6 — Real-time and the RTOS <span>&rsaquo;</span> Chapter 38</p>
+<p class="crumbs">Part 6 &mdash; Real-time and the RTOS <span>&rsaquo;</span> Chapter 38</p>
 <h1>Superloop or RTOS: choosing honestly</h1>
-<p class="lede">A while(1) with a state machine is a legitimate architecture. Knowing when it stops being one is the actual skill.</p>
+<p class="lede">
+  A <code>while(1)</code> with a state machine in it is a legitimate architecture, shipped in
+  millions of products. Knowing when it stops being one &mdash; and being able to argue either side
+  &mdash; is worth more in an interview than preferring one.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> Market listings ask for 'bare-metal and/or RTOS' as a pair. Being able to argue either way is worth more than preferring one.</p>
+  <p>
+    <strong>Not in this advert</strong>, which names an RTOS directly. But the regional listings
+    collected alongside it ask for <em>&ldquo;bare-metal and/or RTOS&rdquo;</em> as a pair, which is
+    a deliberate phrasing: they want somebody who has made the choice, not somebody who only knows
+    one.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="superloop">What a superloop actually is</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The simplest possible firmware: set everything up, then loop forever doing each job in turn. Read
+    the sensor, update the display, check the buttons, repeat.
+  </p>
+  <p>
+    It works beautifully as long as no single job takes long. The moment one of them waits for
+    something, everything else stops waiting too.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The shape, properly done, is not a naive list of calls. It is interrupts doing the urgent,
+    time-critical capture, and a main loop running a set of non-blocking state machines over the
+    results:
+  </p>
+  <pre><code>int main(void) {
+    hw_init();
+    for (;;) {
+        comms_step();      /* each returns promptly, always */
+        control_step();    /* no waiting, no delays inside */
+        ui_step();
+        watchdog_kick();
+    }
+}</code></pre>
+  <p>
+    Each <code>_step()</code> is a state machine (<a href="07-state-machines-in-c.html">chapter
+    07</a>) that advances at most one transition and returns. Nothing blocks; anything that would
+    have blocked becomes a state to be in.
+  </p>
+  <p>
+    What this buys is genuinely large and routinely undersold. <strong>No scheduler means no context
+    switches, no per-task stacks, no kernel RAM and no kernel flash</strong> &mdash; on a part with
+    8 KB of SRAM that is not a saving, it is the difference between possible and impossible.
+    <strong>There is exactly one stack</strong>, so stack analysis is one number rather than N
+    guesses (<a href="12-stack-overflow.html">chapter 12</a>). And critically: there are
+    <strong>no races between tasks</strong>, because there are no tasks. The only concurrency is
+    with interrupts, which is one well-understood boundary rather than N&times;(N&minus;1)/2 of them.
+  </p>
+  <p>
+    It is also fully capable of being real-time (<a href="37-what-real-time-means.html">chapter
+    37</a>). Worst-case response is bounded by the longest single pass through the loop, and if you
+    can state that number, you have a real-time system &mdash; arguably one that is easier to
+    <em>prove</em> real-time than a priority-scheduled one.
+  </p>
+</div>
+
+<h2 id="threshold">Where it stops working</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The trouble starts when two jobs have very different speeds. If one job must happen every
+    millisecond and another takes fifty milliseconds, they cannot share one loop &mdash; the slow one
+    has to be chopped into fifty pieces by hand, and that chopping is where the design turns ugly.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Four signals, in rough order of how strongly they argue for a kernel:
+  </p>
+  <p>
+    <strong>1. Widely separated timescales.</strong> A 1 ms control loop alongside a 200 ms flash
+    write or a TLS handshake. In a superloop the slow work must be manually sliced so that every
+    slice fits the fast deadline, and that hand-slicing is what an RTOS does for you with a context
+    switch.
+  </p>
+  <p>
+    <strong>2. Blocking third-party middleware.</strong> A TCP/IP stack, a USB stack or a file system
+    whose API assumes it can wait (<a href="52-tcp-ip-in-64kb.html">chapter 52</a>). You do not get to
+    rewrite it, and it will not fit a non-blocking loop. This is the most common practical reason a
+    project acquires an RTOS, and it is a perfectly honest one.
+  </p>
+  <p>
+    <strong>3. The state machines start nesting.</strong> When a step function has a state whose only
+    purpose is &ldquo;waiting for the other state machine to finish step 3&rdquo;, you are
+    hand-writing continuations. That is a real code smell, and it is the point where a task, which is
+    just a continuation the kernel manages for you, is cheaper.
+  </p>
+  <p>
+    <strong>4. The team.</strong> Four people on one superloop must all understand the whole loop's
+    timing. Four people on four tasks mostly need to understand their own. That is an organisational
+    argument, not a technical one, and it is still a good argument.
+  </p>
+  <p>
+    Note what is <em>not</em> on the list: number of peripherals, project prestige, or a feeling that
+    an RTOS is more professional. A superloop is not a beginner's architecture. It is the right
+    architecture for a large fraction of products, and the middle ground &mdash; a cooperative or
+    time-triggered scheduler, a few hundred lines that calls each step function on its own period
+    &mdash; covers many of the cases in between without any of a kernel's costs.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>superloop, main, loop, bare, metal, cooperative, scheduler, round, robin, time</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>Adding an RTOS to escape a badly written superloop imports the problem and adds
+    races.</strong>
+  </p>
+  <p>
+    If the reason the loop misses deadlines is a <code>HAL_Delay(100)</code> or a blocking
+    <code>HAL_UART_Transmit</code> buried in a step function, moving that code into a task does not
+    fix it &mdash; it just means the blocked task is no longer obviously the problem. Now you also
+    have shared state between tasks, priority assignment, per-task stacks, and every failure mode in
+    <a href="40-queues-semaphores-mutexes.html">chapter 40</a> and
+    <a href="41-priority-inversion.html">chapter 41</a>.
+  </p>
+  <p>
+    The honest sequence is: make everything non-blocking first, measure the worst-case loop pass, and
+    only then decide. If the loop is clean and the numbers still do not fit, you have a real argument
+    for a kernel and you can state it in one sentence. That sentence is what an interviewer is
+    listening for.
+  </p>
+  <p>
+    The mirror-image trap is a superloop with a watchdog kicked unconditionally at the bottom of the
+    loop. It then proves only that the loop is still spinning, not that anything useful is happening
+    &mdash; each step function should have to report progress before the kick
+    (<a href="28-low-power-and-watchdog.html">chapter 28</a>).
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> Build the same small product twice. This is a long exercise and it is the one
+  that makes the answer yours rather than borrowed.</p>
+  <pre><code>Product: read an ADC every 1 ms, filter it, answer Modbus polls on a
+UART, and blink an LED at 1 Hz.
+
+VERSION A -- superloop.
+  ADC in a timer interrupt into a ring buffer; three step functions;
+  nothing blocks. Measure the worst-case loop pass by toggling a GPIO
+  at the top of the loop and watching the longest gap on a scope.
+
+VERSION B -- FreeRTOS.
+  Three tasks, a queue from the ADC ISR, rate-monotonic priorities.
+
+Then compare, with numbers rather than opinions:
+
+  arm-none-eabi-size on both  -> flash and RAM cost of the kernel
+  worst-case ADC response     -> the real-time comparison
+  stack high water marks      -> one number vs three
+  lines of code               -> usually closer than people expect
+
+Now do the thing that decides it: add a 200 ms blocking flash write to
+the product. Watch version A's worst-case loop pass jump to 200 ms and
+the ADC deadline die. Watch version B absorb it by priority.
+
+That experiment is the whole chapter, and the number you measured is a
+better interview answer than any rule of thumb.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>A superloop is interrupts plus non-blocking state machines</strong>, not a naive list of calls.</li>
+    <li><strong>It can be fully real-time:</strong> worst-case response is the longest single pass through the loop.</li>
+    <li><strong>No tasks means no races between tasks</strong> &mdash; one concurrency boundary instead of many.</li>
+    <li><strong>One stack means stack analysis is one number.</strong></li>
+    <li><strong>Widely separated timescales are the strongest argument for a kernel</strong>, because hand-slicing slow work is what a context switch does for free.</li>
+    <li><strong>Blocking third-party middleware is the most common practical reason</strong>, and an honest one.</li>
+    <li><strong>State machines that wait on each other are hand-written continuations</strong>, which is the smell that says a task would be cheaper.</li>
+    <li><strong>Fix the blocking calls before adding a kernel</strong>, or you import the problem and add races to it.</li>
+    <li><strong>A cooperative or time-triggered scheduler is the real middle ground.</strong></li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Preferisce bare-metal o RTOS?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Nessuno dei due a priori: dipende, e il criterio ce l&rsquo;ho. Un superloop fatto
+    bene &mdash; interrupt per le cose urgenti e macchine a stati non bloccanti nel ciclo principale
+    &mdash; &egrave; un&rsquo;architettura seria, non da principianti: niente kernel in RAM e in
+    flash, un solo stack quindi l&rsquo;analisi dello stack &egrave; un numero solo, e soprattutto
+    nessuna race fra task perch&eacute; i task non ci sono. E pu&ograve; benissimo essere real-time:
+    il caso peggiore &egrave; il giro pi&ugrave; lungo del ciclo, e se so dire quel numero ho un
+    sistema real-time. Passo all&rsquo;RTOS quando ho scale di tempo molto diverse &mdash; un anello
+    di controllo a un millisecondo insieme a una scrittura in flash da duecento &mdash; perch&eacute;
+    l&igrave; nel superloop dovrei affettare a mano il lavoro lento, che &egrave; esattamente quello
+    che il cambio di contesto fa da solo. L&rsquo;altro motivo, molto concreto, &egrave; una
+    middleware di terzi che si blocca, tipo uno stack TCP/IP: quella non la riscrivo io. Quello che
+    non faccio &egrave; mettere un RTOS per uscire da un superloop scritto male: se il problema
+    &egrave; una <code>HAL_Delay</code> dentro una funzione, spostarla in un task non la
+    risolve, mi porta dietro il problema e in pi&ugrave; mi regala le race. Prima rendo tutto non
+    bloccante e misuro, poi decido.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

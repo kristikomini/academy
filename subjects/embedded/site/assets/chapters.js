@@ -61,6 +61,36 @@
       the anchor advert did not write them -- but they are why the course is
       this long.
 
+   3. THE SECOND ADVERT, collected September 2026 and deliberately NOT promoted to
+      `req`. An EMBEDDED INTEGRATION ENGINEER at a large engineering services
+      company, Automotive, working on "sistemi embedded per applicazioni di
+      propulsion". Its lines:
+
+        - "Progettare, sviluppare e mantenere requisiti e architetture software."
+        - "Implementare e integrare componenti software per applicazioni
+           embedded."
+        - "Supportare le attivita' di build e integrazione software."
+        - "Esperienza in attivita' di integrazione software/hardware embedded."
+        - "Comprensione del linguaggio C."
+        - "Esperienza nell'utilizzo di protocolli di comunicazione, quali CAN e
+           UDS."
+        - "Dimestichezza con sistemi di versionamento del codice, preferibilmente
+           Git."
+        - "Conoscenza fluente della lingua inglese."
+
+      Most of it already had a chapter: C is Parts 1 and 2, integration
+      software/hardware is Parts 4, 5 and 10, CAN is 49, Git is 66, English is
+      67, the architecture line is 35 and the build line is 36. Three things did
+      not exist anywhere and were added as 49a, 49b and 64a -- ISO-TP, UDS, and
+      the automotive V-cycle with its ASPICE vocabulary.
+
+      They carry `extra`, not `req`, ON PURPOSE. index.html says "one posting"
+      and "nothing in the advert is left uncovered", and the coverage table is
+      generated from the `req` fields -- so a `req` sourced from a DIFFERENT
+      advert would quietly turn a true claim into a false one. The chapters name
+      this advert in their own "From the advert" box instead, which is honest at
+      the point a reader is actually standing.
+
    WHAT THE RATIO MEANS. Most chapters carry an `extra`. That is the point: the
    advert says "programmazione in C (e C++) in ambito embedded" as eleven words,
    and Parts 1 to 4 are the expansion of those eleven words. A chapter only gets
@@ -466,6 +496,20 @@ const CHAPTERS = [
     extra: "Named across regional machinery and vehicle listings. LogiFlow 32d introduces the frame from the PC side; here you configure the controller.",
   },
   {
+    n: "49a", id: "49a-iso-tp", part: PARTS[7],
+    title: "ISO-TP: more than eight bytes over CAN",
+    blurb: "ISO 15765-2, the transport layer between CAN and UDS: single, first, consecutive and flow-control frames, block size, STmin, and the timers that decide whether a reflash finishes.",
+    tags: "iso-tp isotp iso 15765-2 transport layer segmentation reassembly single frame first frame consecutive frame flow control pci sequence number block size bs stmin separation time padding normal extended mixed addressing 7df 7e0 7e8 18da functional physical n_as n_ar n_bs n_cr n_cs timeout abort can fd escape socketcan isotpsend",
+    extra: "Named indirectly by a second advert in the corpus, an automotive Embedded Integration Engineer role asking for 'CAN e UDS'. UDS does not run on CAN; it runs on this, and naming the layer between them is the difference between two acronyms and a stack.",
+  },
+  {
+    n: "49b", id: "49b-uds", part: PARTS[7],
+    title: "UDS: the diagnostic language of the ECU",
+    blurb: "ISO 14229: services and the plus-0x40 response, negative response codes, sessions and security access, the 0x78 that is not an error, and the ten-message sequence that reflashes a control unit.",
+    tags: "uds iso 14229 diagnostic service identifier sid positive response negative response nrc 7f 78 response pending p2 p2star session control 10 03 programming session security access 27 seed key 33 35 36 37 tester present 3e suppress positive response bit s3 timer read data by identifier 22 did f190 vin write 2e read dtc 19 status byte clear 14 routine control 31 request download 34 transfer data 36 transfer exit 37 ecu reset 11 communication control 28 control dtc setting 85 bootloader reflash obd2 j1979 doip iso 13400 dcm dem",
+    extra: "The one line of the automotive Embedded Integration Engineer advert that nothing else in this course answers: 'protocolli di comunicazione, quali CAN e UDS'. Outside automotive UDS is rare; inside it, it is assumed the way Modbus is assumed on a factory floor.",
+  },
+  {
     n: "50", id: "50-modbus-rtu", part: PARTS[7],
     title: "Modbus RTU",
     blurb: "The lingua franca of the factory floor. Function codes, the four register spaces, CRC, the 3.5-character silence, and off-by-one addressing.",
@@ -575,6 +619,13 @@ const CHAPTERS = [
     blurb: "Compiling your logic for the PC and testing it there, faking the hardware at a seam, and what only a real board can tell you.",
     tags: "unit test off target host native build ceedling unity cmock googletest fake mock stub hardware abstraction seam dependency injection ci pipeline coverage integration test hardware in the loop hil test fixture regression smoke test acceptance collaudo validation verification golden data",
     extra: "Regional listings ask for written test plans; being able to describe a test that runs without a board is what makes CI possible at all.",
+  },
+  {
+    n: "64a", id: "64a-automotive-v-cycle", part: PARTS[10],
+    title: "The automotive V-cycle: requirements, architecture, integration",
+    blurb: "What an automotive programme means by requisiti, architetture and attivita' di build e integrazione: the V-model, Automotive SPICE, where AUTOSAR fits, and what an integration engineer does on a Tuesday.",
+    tags: "v model v cycle automotive spice aspice swe.1 swe.2 swe.3 swe.4 swe.5 swe.6 sys.1 sys.2 requirements engineering testable requirement traceability bidirectional doors polarion codebeamer iso 26262 asil functional safety autosar classic adaptive mcal bsw rte swc arxml dcm dem simulink model based software integration integration test build variant baseline reproducible build toolchain qualification a2l hex s19 hil restbus canoe canalyzer canape vector defect bisection cycle time cpu load bus load can matrix dbc",
+    extra: "The second advert in the corpus asks for 'progettare, sviluppare e mantenere requisiti e architetture software' and 'supportare le attivita' di build e integrazione'. That is a different job from the rest of this course, and it is worth naming as one.",
   },
   {
     n: "65", id: "65-misra-and-safety", part: PARTS[10],

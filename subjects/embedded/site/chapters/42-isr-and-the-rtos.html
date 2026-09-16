@@ -18,25 +18,218 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 6 — Real-time and the RTOS <span>&rsaquo;</span> Chapter 42</p>
+<p class="crumbs">Part 6 &mdash; Real-time and the RTOS <span>&rsaquo;</span> Chapter 42</p>
 <h1>Interrupts and the RTOS: the FromISR rule</h1>
-<p class="lede">Why calling the ordinary API from an interrupt hangs the system, and how work is deferred out of an ISR properly.</p>
+<p class="lede">
+  The first thing that goes wrong on a real RTOS project, and it fails quietly rather than loudly:
+  calling the ordinary kernel API from an interrupt handler. Why there are two versions of every
+  function, and why the priority ceiling that governs it is the setting people get wrong.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The first thing that goes wrong on a real RTOS project, and it fails silently rather than loudly.</p>
+  <p>
+    <strong>Not named in this advert.</strong> It is where
+    <a href="26-interrupts-and-nvic.html">chapter 26</a> and
+    <a href="39-tasks-and-scheduler.html">chapter 39</a> meet, and it is the seam where the two
+    halves of <em>&ldquo;firmware su microcontrollori e sistemi operativi Real-Time&rdquo;</em>
+    actually touch each other.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="two-apis">Why there are two of every function</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    When a task asks the kernel for something that is not available yet, the kernel's answer is
+    &ldquo;fine, go to sleep, I will wake you&rdquo;. That works because a task is something that can
+    be put to sleep.
+  </p>
+  <p>
+    An interrupt handler is not. There is nothing to put to sleep &mdash; it is a piece of work the
+    processor is doing right now, on behalf of nobody. So if a handler asks for something
+    unavailable, the kernel has no valid answer, and the usual result is that everything stops.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The blocking API's contract is &ldquo;block the <em>calling task</em> until this succeeds or the
+    timeout expires&rdquo;. In handler mode there is no calling task: the interrupt arrived
+    asynchronously and the kernel cannot identify an owner to move to the Blocked list, let alone
+    perform a context switch out of an exception whose return path is already fixed.
+  </p>
+  <p>
+    So kernels supply a parallel, interrupt-safe API. In FreeRTOS it is the <code>FromISR</code>
+    suffix, and the differences are systematic:
+  </p>
+  <ul>
+    <li><strong>No timeout parameter.</strong> The call either succeeds immediately or fails
+        immediately. <code>xQueueSendFromISR</code> returns <code>errQUEUE_FULL</code> rather than
+        waiting, and <em>you must check the return value</em> &mdash; a full queue in an ISR is data
+        loss, and silently discarding it is how a link develops a mysterious 0.1&nbsp;% drop rate.</li>
+    <li><strong>A <code>pxHigherPriorityTaskWoken</code> out-parameter</strong>, described below.</li>
+    <li><strong>Different internal locking</strong>, because it cannot take a mutex or suspend the
+        scheduler the way the task-side call does.</li>
+  </ul>
+  <p>
+    And one rule with no exception: <strong>an ISR must never take a mutex</strong>. Not the FromISR
+    variant either &mdash; there is no such variant, deliberately. A mutex has an owner so that
+    priority inheritance can promote it (<a href="41-priority-inversion.html">chapter 41</a>), and an
+    interrupt handler is not a task and has no priority the scheduler can raise. The inversion would
+    be unbounded by construction. Signal a task; let the task take the lock.
+  </p>
+</div>
+
+<h2 id="woken">The yield parameter, and what it is for</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Suppose the interrupt wakes up a task that is more urgent than the one that was running before
+    the interrupt arrived. When the handler finishes, the processor would normally go back to the
+    interrupted task &mdash; and the urgent one would wait for no reason.
+  </p>
+  <p>
+    So the kernel hands you a small flag: &ldquo;something more urgent is now ready&rdquo;. You pass
+    it to one macro at the end of the handler, and the switch happens immediately instead of at the
+    next tick.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The pattern, and it is the same every time:
+  </p>
+  <pre><code>void USART1_IRQHandler(void)
+{
+    BaseType_t woken = pdFALSE;          /* MUST be initialised to false */
+
+    uint8_t b = (uint8_t) USART1-&gt;RDR;   /* also clears RXNE on this part */
+
+    if (xQueueSendFromISR(rx_queue, &amp;b, &amp;woken) != pdTRUE) {
+        rx_overflow++;                    /* count it -- never ignore it */
+    }
+
+    portYIELD_FROM_ISR(woken);           /* switch NOW if a higher-priority
+                                            task became ready; otherwise a
+                                            no-op */
+}</code></pre>
+  <p>
+    Omitting <code>portYIELD_FROM_ISR</code> is not a crash. It is worse: the system works, and the
+    woken task simply does not run until the next SysTick or the next yield for some other reason.
+    You have silently added up to one tick period &mdash; typically 1 ms, which on a control loop is
+    enormous &mdash; to the response time of the highest-priority path in the product. Nothing
+    reports it, and it will not show up in any test that does not measure latency.
+  </p>
+  <p>
+    Note also that <code>woken</code> must start as <code>pdFALSE</code> and can be passed to several
+    FromISR calls in the same handler, accumulating; you yield once, at the end.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>fromisr, interrupt, safe, api, yield, higher, priority, task, woken, deferred</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>An interrupt at a priority above <code>configMAX_SYSCALL_INTERRUPT_PRIORITY</code> must
+    not call any kernel function at all &mdash; and on STM32 the default priority is zero, which is
+    above it.</strong> This is the single most common RTOS configuration bug, and it is not obvious
+    from the code.
+  </p>
+  <p>
+    The kernel protects its internal data by masking interrupts up to that ceiling, using
+    <code>BASEPRI</code> rather than disabling them entirely &mdash; which is the good bargain: it
+    means genuinely urgent interrupts above the ceiling keep running even inside the kernel's
+    critical sections, so their latency is unaffected by the RTOS. The price is that those interrupts
+    are outside the kernel's protection and therefore may not touch it.
+  </p>
+  <p>
+    The failure mode when you get it wrong is intermittent queue or list corruption that appears
+    under load, days later, and looks like a memory bug. FreeRTOS ships an assertion
+    (<code>configASSERT</code> plus <code>vPortValidateInterruptPriority</code>) that catches it on
+    the first offending call &mdash; <strong>turn <code>configASSERT</code> on in development</strong>
+    and this whole class of bug becomes a loud failure on the first run instead.
+  </p>
+  <p>
+    Remember the numbering is inverted (<a href="26-interrupts-and-nvic.html">chapter 26</a>):
+    <em>numerically lower is more urgent</em>, so an interrupt that wants to call the kernel needs a
+    priority number <em>greater than or equal to</em> the ceiling. Any peripheral you enable through
+    CubeMX and do not explicitly assign a priority to gets 0, which is the most urgent possible, and
+    it will trip the assertion the first time it calls <code>xQueueSendFromISR</code>.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> On a board with FreeRTOS. All three of these are deliberate breakages, and
+  each one takes a minute and saves a day later.</p>
+  <pre><code>1. Turn on configASSERT first:
+
+     #define configASSERT(x) if((x)==0){taskDISABLE_INTERRUPTS();for(;;);}
+
+   Then set a UART interrupt to priority 0 and call xQueueSendFromISR
+   from it. You will stop inside vPortValidateInterruptPriority on the
+   first byte received. That is the assertion earning its place.
+
+2. Fix it -- NVIC_SetPriority(USART1_IRQn, 5) or anything numerically
+   greater than or equal to configMAX_SYSCALL_INTERRUPT_PRIORITY -- and
+   confirm it runs.
+
+3. Now delete portYIELD_FROM_ISR and measure instead of guessing.
+   Toggle a pin in the ISR and another at the top of the woken task, and
+   look at the gap on a scope:
+
+     with the yield     -- a few microseconds
+     without the yield  -- up to one full tick period
+
+   Nothing has crashed. Nothing is logged. That gap is the bug, and it
+   is invisible to every test that does not look at time.
+
+4. Finally, call the plain xQueueSend (no FromISR) from the handler and
+   watch what your kernel does. With asserts on, it stops here too.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>An ISR has no calling task to block</strong>, which is why the blocking API cannot work there.</li>
+    <li><strong>Use the FromISR variants</strong>: no timeout, so they succeed or fail immediately.</li>
+    <li><strong>Check the FromISR return value.</strong> A full queue in an ISR is data loss.</li>
+    <li><strong>An ISR must never take a mutex</strong> &mdash; there is no owner to promote, so the inversion is unbounded by construction.</li>
+    <li><strong>Initialise the woken flag to false, accumulate it, and yield once at the end.</strong></li>
+    <li><strong>Omitting portYIELD_FROM_ISR does not crash</strong> &mdash; it silently adds up to a tick to your most urgent path.</li>
+    <li><strong>Interrupts more urgent than configMAX_SYSCALL_INTERRUPT_PRIORITY may not call the kernel at all.</strong></li>
+    <li><strong>CubeMX gives unassigned interrupts priority 0</strong>, which is above the ceiling and will trip the assertion.</li>
+    <li><strong>Turn configASSERT on in development.</strong> It converts a class of intermittent corruption into a first-run stop.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Cosa cambia a chiamare l&rsquo;API dell&rsquo;RTOS da dentro un interrupt?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Le funzioni normali hanno come contratto &lsquo;blocca il task chiamante finch&eacute;
+    non riesce&rsquo;, ma dentro un handler un task chiamante non c&rsquo;&egrave;: non c&rsquo;&egrave;
+    nessuno da mettere in Blocked. Per questo esistono le versioni <code>FromISR</code>, che non
+    hanno il timeout &mdash; o riescono subito o falliscono subito &mdash; e il valore di ritorno lo
+    controllo sempre, perch&eacute; una coda piena dentro un&rsquo;ISR &egrave; perdita di dati e
+    ignorarla d&agrave; quei link che perdono un pacchetto ogni mille. Poi c&rsquo;&egrave; il
+    parametro <code>pxHigherPriorityTaskWoken</code>: se l&rsquo;interrupt ha risvegliato un task
+    pi&ugrave; prioritario di quello interrotto, passo il flag a
+    <code>portYIELD_FROM_ISR</code> e il cambio di contesto avviene subito. Se lo dimentico non
+    crasha niente: il task parte al tick successivo, e mi sono mangiato fino a un millisecondo sul
+    percorso pi&ugrave; urgente del prodotto, senza che nessuno me lo dica. La cosa su cui ho perso
+    pi&ugrave; tempo per&ograve; &egrave; un&rsquo;altra: un interrupt con priorit&agrave;
+    pi&ugrave; urgente di <code>configMAX_SYSCALL_INTERRUPT_PRIORITY</code> non pu&ograve; chiamare
+    il kernel, e CubeMX assegna priorit&agrave; 0 a tutto quello a cui non gliela dico io &mdash;
+    cio&egrave; la pi&ugrave; urgente possibile. Con <code>configASSERT</code> acceso salta fuori
+    alla prima chiamata invece di corrompere una lista fra tre giorni. E in un&rsquo;ISR non prendo
+    mai un mutex: non ha un proprietario da promuovere, quindi segnalo un task e il lock lo prende
+    lui.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

@@ -67,7 +67,7 @@ Three consequences, all deliberate and all visible on the site itself:
 | 5 | The deep course + GOLDEN-RULES.md | Not started |
 | 6 | The viva — deck generator, viva.html, simulate.html | Blocked on phase 4 prose (`.rules` blocks are the source) |
 | 7 | The accounts service | Not started, and deliberately so — `apiBase` is empty |
-| 8 | Offline and install | Ported; cache `centralina.embedded-v2` |
+| 8 | Offline and install | Ported; cache `centralina.embedded-v4` |
 | 9 | Deploy | Not deployed — no wrangler run, no DNS record yet |
 
 ---
@@ -76,11 +76,11 @@ Three consequences, all deliberate and all visible on the site itself:
 
 | Thing | Count | Target |
 |---|---|---|
-| Site chapters (files + manifest entries) | 72 | 72 |
-| Chapters actually written | **15** | 72 |
-| Chapters that are honest placeholders | **57** | 0 |
-| Quiz questions | 135 | ~720 |
-| Chapters with questions | 15 | 72 |
+| Site chapters (files + manifest entries) | 75 | 75 |
+| Chapters actually written | **34** | 75 |
+| Chapters that are honest placeholders | **41** | 0 |
+| Quiz questions | 317 | ~750 |
+| Chapters with questions | 34 | 75 |
 | Glossary terms | 0 | ~130 |
 | Italian chapter panels | 0 | ~30 |
 
@@ -90,8 +90,10 @@ That is the generator's design (`tools/gen-chapters.js`) and it should stay that
 
 ### Which chapters are written
 
-The fifteen were chosen as the spine of the course, not as a contiguous block: the ones an
-interviewer is most likely to reach for, plus the two ends of the arc.
+Chosen as the spine of the course rather than as a contiguous block: the ones an interviewer is
+most likely to reach for, plus the two ends of the arc. **Parts 6 and 7 are now complete** — every
+chapter in them has prose, a Try-it, golden rules, an Italian panel and questions — because an
+interviewer reaches for an RTOS and a protocol long before reaching for `constexpr`.
 
 | Ch | Title | Why this one first |
 |---|---|---|
@@ -99,21 +101,56 @@ interviewer is most likely to reach for, plus the two ends of the arc.
 | 03 | Types, sizes, and the integer rules that catch everyone | The half of C candidates claim and cannot defend |
 | 06 | const, volatile, and the compiler that deleted your poll loop | The most frequently asked single question in embedded hiring, worldwide |
 | 11 | Why embedded code avoids malloc | A house rule nobody writes in an advert and everybody asks about |
+| 23 | Memory-mapped I/O and the peripheral register | A pin is an address — the idea the whole field is built on |
+| 24 | The startup path: reset vector to main | The first place to look when a board does nothing, and where beginners never look |
 | 26 | Interrupts, the NVIC and the rules for an ISR | Everything in Part 6 assumes it |
+| 27 | DMA | What makes a fast link and an idle CPU compatible, plus the cache-coherency bug |
 | 30 | CubeMX, CubeIDE, HAL, LL and the bare registers | The advert's one hard technical gate, and a question with a wrong confident answer in both directions |
+| 35 | Designing the software architecture of a firmware project | Both adverts use the word *architettura*, and this is the only chapter that answers it |
+| 36 | Makefile, CMake and the linker script | The *build e integrazione* line, and the file that decides whether the program fits |
 | 37 | What 'real-time' actually means | The answer most likely to be scored, because "fast" is wrong and common |
+| 38 | Superloop or RTOS: choosing honestly | Regional listings ask for bare-metal *and* RTOS; arguing either side beats preferring one |
+| 39 | Tasks, the scheduler and priorities | The concrete half of chapter 37 — the mechanism you use to meet the deadline |
 | 40 | Queues, semaphores and mutexes | The most common RTOS design error, and the setup for chapter 41 |
 | 41 | Priority inversion, and the rover that rebooted | The canonical follow-up to any mutex answer |
+| 42 | Interrupts and the RTOS: the FromISR rule | The first thing that goes wrong on a real RTOS project, and it fails quietly |
+| 43 | Timing, jitter, and how you measure it | The advert says *ottimizzare*, and you cannot optimise what you have not measured |
+| 44 | FreeRTOS concretely, and what else exists | An advert saying "an RTOS" means FreeRTOS three times in four |
+| 45 | The physical layer, and why RS-485 | The word *approfondita* starts one layer below HAL_UART_Transmit |
 | 46 | UART | Everything in chapter 50 runs on top of it |
+| 47 | Framing: knowing where a message starts | Most of what *e testare* in the advert actually costs |
+| 48 | SPI and I2C | Every sensor on the proprietary board speaks one of the two |
+| 49 | CAN and CANopen | The usual answer when a machine has intelligent actuators |
+| 49a | ISO-TP: more than eight bytes over CAN | The layer a candidate who says "CAN and UDS" is expected to be able to name |
+| 49b | UDS: the diagnostic language of the ECU | The one line of the automotive advert nothing else in this course answers |
 | 50 | Modbus RTU | The most probable protocol between this board and that PLC |
 | 56 | What a PLC is, for a firmware engineer | The seam the anchor advert is really hiring for |
 | 58 | Talking to the PLC: who is master, and what happens when the link drops | The integration design conversation, which is the advert's word *configurare* |
+| 64a | The automotive V-cycle: requirements, architecture, integration | The *build e integrazione* job, which is a different seat from the rest of this course |
+| 66 | Git, code review and the release | *Dimestichezza con Git* is the modest half; knowing what is in the field is the half that separates candidates |
+| 67 | Technical English | Both adverts ask for it, one of them as *fluente*, and it is tested by switching language mid-interview |
 | 70 | The CV and the ATS | Where the hardware boundary becomes a sentence you can defend |
 | 71 | The interview, the contract and the RAL | CCNL, 13 mensilità, apprendistato, and the questions to ask them |
 
 Everything else is a labelled placeholder. Writing order from here should follow the same
 logic: **Part 6 and Part 7 before Part 3**, because an interviewer asks about an RTOS and a
 protocol long before asking about `constexpr`.
+
+**The three lettered chapters were inserted, not appended, and that is why they are lettered.**
+A question's id is `<chapter-id>#<index>`, so renumbering 50 to 71 in order to open a gap after
+49 would rename every file below it and break `quiz-ids.lock` — somebody's review schedule
+against every chapter in Parts 8 to 11. LogiFlow already solved this with 32b/32c/32d; the same
+idiom is used here. **Never renumber to insert.**
+
+**The four chapters named verbatim by the second advert — 35, 36, 66 and 67 — were written on
+2026-09-16**, immediately after 49a/49b/64a, for the same reason: architecture, build, Git and
+English are asked for by *both* adverts and were the last placeholders among the lines either
+one actually writes down. With them, **every line of the automotive advert now has written
+prose behind it**, and the anchor advert's `req` set is complete except for the C and C++
+expansion in Parts 1 to 3.
+
+From here the original order resumes: **finish Part 4 (21, 22, 25, 28), then Part 5, then 9 and
+10, then 1 and 2, then 3 and 11.**
 
 ---
 
@@ -136,6 +173,23 @@ PROFINET, EtherNet/IP, OPC UA, embedded Linux with Yocto or Buildroot, MISRA C w
 analysis, IEC 61508 functional safety, Git, written test plans, and hardware bring-up with
 an oscilloscope and a logic analyser. Those are `extra`, not `req` — but they are why the
 course is this long.
+
+**The second advert**, September 2026, and deliberately *not* promoted to `req`. An
+**Embedded Integration Engineer** at a large engineering services company, Automotive, on
+*"sistemi embedded per applicazioni di propulsion"*: *"progettare, sviluppare e mantenere
+requisiti e architetture software"*, *"implementare e integrare componenti software"*,
+*"supportare le attività di build e integrazione software"*, *"esperienza in attività di
+integrazione software/hardware embedded"*, *"comprensione del linguaggio C"*, *"protocolli di
+comunicazione, quali CAN e UDS"*, Git, fluent English, STEM degree, up to two years.
+
+Almost all of it already had a chapter — C is Parts 1 and 2, hardware/software integration is
+Parts 4, 5 and 10, CAN is 49, Git is 66, English is 67, the architecture line is 35 and the
+build line is 36. **Three things existed nowhere and were added: 49a (ISO-TP), 49b (UDS) and
+64a (the automotive V-cycle).** They carry `extra` rather than `req` on purpose: `index.html`
+states *"one posting"* and *"nothing in the advert is left uncovered"*, and the coverage table
+is generated from the `req` fields, so a `req` sourced from a different advert would quietly
+turn a true claim into a false one. Each of the three names this advert in its own *From the
+advert* box, which is honest at the point a reader is actually standing.
 
 ---
 
@@ -188,8 +242,9 @@ is the contract rather than the convention.
 
 ## Known gaps, in the order they should be closed
 
-1. **The prose.** Sixty labelled placeholders. Order: Parts 6 and 7, then 4 and 5, then 9
-   and 10, then 1 and 2, then 3 and 11.
+1. **The prose.** Forty-one labelled placeholders. Parts 6 and 7 are complete, and the
+   advert-named chapters (35, 36, 66, 67, plus 49a/49b/64a) are done. Remaining order: Part 4
+   (21, 22, 25, 28), then Part 5, then 9 and 10, then 1 and 2, then 3 and 11.
 2. **The question bank.** Questions exist only for written chapters, because a question
    written against a placeholder is a question written against nothing.
 3. **`glossary.js` is categories only.** The contract and process vocabulary (RAL, CCNL,
@@ -205,9 +260,11 @@ is the contract rather than the convention.
    **generated** — `viva-extract.php` then `viva-deck.php`. The only hand-written input is
    `course/viva-tiers.json`. Do not hand-write either output. This cannot usefully run until
    more `.rules` blocks exist.
-6. **Never verified in a browser.** The structural gate passes and the engine is
-   byte-identical to five working sites, so the risk is low — but *low* is not *checked*.
-   Preview is `centralina-academy` on port 8107 in `Desktop/Kristi Komini/.claude/launch.json`.
+6. **Verified in a browser** on 2026-09-14, via `centralina-academy` on port 8107 in
+   `Desktop/Kristi Komini/.claude/launch.json`. Navigation, the coverage and beyond tables,
+   the brand accent, the service worker and the full quiz loop all work. Two engine
+   behaviours that look like faults and are not: `learn.js` *removes* `#toc` on a chapter
+   with few `h2`s, and the quiz injects its own `h2#test-yourself`.
 7. **Not deployed.** `wrangler.jsonc` is configured for `embedded.testdemo.it` but has never
    been run, and the subject is not in the CI matrix.
 8. **`api/` and `src/` are empty directories**, as in the kafka subject. That is a decision,

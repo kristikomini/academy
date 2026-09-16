@@ -76,7 +76,7 @@ self.SUBJECT = {
 
   /* Bump to invalidate the offline cache. sw.js builds its cache name as
      `key + "-v" + cacheVersion`. CHANGE THIS ON EVERY CONTENT CHANGE. */
-  cacheVersion: 2,
+  cacheVersion: 6,
 
   /* Display strings. */
   name: "Centralina Academy",

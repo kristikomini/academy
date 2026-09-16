@@ -18,25 +18,310 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 5 — STM32, concretely <span>&rsaquo;</span> Chapter 35</p>
+<p class="crumbs">Part 5 &mdash; STM32, concretely <span>&rsaquo;</span> Chapter 35</p>
 <h1>Designing the software architecture of a firmware project</h1>
-<p class="lede">Layers, driver interfaces, a hardware abstraction you can test on a PC, and where the advert's word 'architettura' actually points.</p>
+<p class="lede">
+  Three layers, one rule about which way the arrows point, and a seam that lets most of your code be
+  compiled and tested on a PC. Plus the part nobody writes down: what a module's header is allowed to
+  say, and what it must keep to itself.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p>This chapter answers <em>"Progettare l'architettura software per l'ambiente di sviluppo STM32"</em> &mdash; a line that appeared in the adverts this course was built from.</p>
+  <p>
+    This chapter answers <em>&ldquo;Progettare l&rsquo;architettura software per l&rsquo;ambiente di
+    sviluppo STM32&rdquo;</em> &mdash; a line that appeared in the anchor advert, and one of the very
+    few that uses the word <em>progettare</em> rather than <em>sviluppare</em>.
+  </p>
+  <p>
+    The automotive advert in the corpus asks for the same thing in different words:
+    <em>&ldquo;Progettare, sviluppare e mantenere requisiti e architetture software&rdquo;</em>. Both
+    are asking whether you can decide where a line of code belongs before writing it, and defend the
+    decision afterwards.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="layers">Three layers, and the only rule that matters</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Split the code into three floors. The bottom floor knows about this exact chip: which pin, which
+    register, which peripheral. The middle floor knows about <em>things</em> &mdash; a temperature
+    sensor, a pump, a message link &mdash; without caring which chip they are wired to. The top floor
+    knows what the product does: when the pump runs, what the alarm is, what to report.
+  </p>
+  <p>
+    Then one rule: <strong>a floor may only call downwards</strong>. The chip layer never calls the
+    product layer. If it seems to need to, that is a signal travelling the wrong way, and the answer
+    is a callback the upper floor registered &mdash; not a call upwards.
+  </p>
+  <p>
+    Everything else in this chapter follows from that rule, including the useful part: you can lift
+    off the bottom floor, put a fake one underneath, and run the other two on your laptop.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The layering that survives contact with a real product:
+  </p>
+  <ul>
+    <li><strong>Hardware layer.</strong> Startup, clocks, and the drivers that touch registers or
+        vendor HAL calls. Everything from <a href="23-memory-mapped-io.html">chapter 23</a> lives
+        here, and it is the only place a peripheral name such as <code>TIM3</code> or
+        <code>USART2</code> may appear.</li>
+    <li><strong>Device / service layer.</strong> One module per real thing: the temperature sensor,
+        the flow meter, the pump, the protocol link, the parameter store. Their headers speak in
+        engineering units and outcomes, never in registers.</li>
+    <li><strong>Application layer.</strong> The behaviour of the product: state machines
+        (<a href="07-state-machines-in-c.html">chapter 7</a>), supervision, alarms, and the
+        scheduling policy &mdash; superloop or RTOS tasks, which is
+        <a href="38-superloop-or-rtos.html">chapter 38</a>.</li>
+  </ul>
+  <p>
+    <strong>Dependencies point downwards only</strong>, and that is checkable rather than a matter of
+    taste: grep the include graph, and an <code>#include</code> from a lower layer to a higher one is
+    a defect. When a lower layer genuinely needs to notify upwards, invert it &mdash; the upper layer
+    registers a callback or posts to a queue, and the lower layer calls a function pointer it was
+    handed. That is dependency inversion, and on a microcontroller it costs one pointer.
+  </p>
+  <p>
+    Two cross-cutting concerns deserve deciding once, at the start, because retrofitting them is
+    miserable. <strong>Error reporting:</strong> one error type, returned by value, checked at the
+    layer that can do something about it &mdash; not an <code>int</code> in some modules and a
+    <code>bool</code> in others. <strong>Time:</strong> a single monotonic tick source that everything
+    reads, never a driver with its own private delay loop, so that timing is
+    <a href="43-timing-and-jitter.html">measurable</a> rather than distributed.
+  </p>
+  <p>
+    Directory structure should make the layering visible from the file tree &mdash;
+    <code>hw/</code>, <code>dev/</code>, <code>app/</code>, plus <code>test/</code> and
+    <code>third_party/</code>. If a reviewer cannot tell which layer a new file belongs in from its
+    path, neither can the person who adds the next one.
+  </p>
+</div>
+
+<h2 id="interfaces">What a header may say, and what it must not</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A module's header file is a promise to everybody else: <em>these are the things you may ask me to
+    do</em>. Everything not in that promise should be invisible &mdash; the variables, the buffers, the
+    fact that there is a chip register involved at all.
+  </p>
+  <p>
+    The test is simple. If you replaced the whole module with a completely different implementation
+    tomorrow, would anybody else's code need editing? If yes, you promised too much.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Concretely, for a C module <code>pump</code>:
+  </p>
+  <pre><code>/* pump.h -- the entire promise. */
+typedef struct pump pump_t;                 /* opaque: no fields here */
+
+typedef enum { PUMP_OK, PUMP_E_RANGE, PUMP_E_HW } pump_err_t;
+
+pump_err_t pump_init(pump_t *p, const pump_cfg_t *cfg);
+pump_err_t pump_set_speed(pump_t *p, uint16_t rpm);
+pump_err_t pump_read_speed(const pump_t *p, uint16_t *rpm_out);
+void       pump_on_fault(pump_t *p, void (*cb)(void *ctx), void *ctx);</code></pre>
+  <p>
+    The design decisions in those six lines, each of which is worth being able to defend:
+  </p>
+  <ul>
+    <li><strong>An opaque type.</strong> Callers hold a pointer and cannot reach inside, so the
+        internals can change without touching a single other file. The struct is defined in the
+        <code>.c</code>.</li>
+    <li><strong>An explicit instance</strong> rather than a hidden global, so a second pump &mdash; or
+        a test double &mdash; costs nothing. Firmware written around singletons is firmware that
+        cannot be unit tested and cannot ship a two-channel variant.</li>
+    <li><strong>Engineering units in the API.</strong> <code>rpm</code>, not a raw timer compare
+        value. Scaling belongs inside the module that knows the hardware; a scaled integer convention
+        rather than a float is the industrial habit, and
+        <a href="58-talking-to-the-plc.html">chapter 58</a> is why.</li>
+    <li><strong>Errors returned, not logged and swallowed.</strong> The caller decides whether a fault
+        is fatal; the driver does not know.</li>
+    <li><strong>No <code>malloc</code>.</strong> The caller owns the storage
+        (<a href="11-avoiding-malloc.html">chapter 11</a>), which also means the memory map is
+        knowable at link time.</li>
+    <li><strong>Upward notification by callback</strong>, registered by the layer above.</li>
+  </ul>
+  <p>
+    Header hygiene that a reviewer will check: include guards, include what you use, forward-declare
+    where you can, no <code>#include "stm32f4xx.h"</code> in anything above the hardware layer, and
+    absolutely no variable definitions in a header &mdash; <code>extern</code> declarations only, since
+    a definition in a header multiplies into one copy per translation unit
+    (<a href="05-static-and-linkage.html">chapter 5</a>).
+  </p>
+</div>
+
+<h2 id="seam">The seam: why this architecture is testable on a PC</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    If the middle and top floors never mention the chip, then they are ordinary C. They can be
+    compiled for your laptop, with a fake bottom floor that pretends to be the hardware, and tested
+    in a second instead of in a flash-and-watch cycle.
+  </p>
+  <p>
+    That is not a testing trick. It is the actual reason for the layering: the architecture exists so
+    that most of the product can be exercised without the product.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The seam is the hardware layer's interface, and it has to be a genuine interface rather than a
+    convention. Two mechanisms, both ordinary C:
+  </p>
+  <ul>
+    <li><strong>Link-time substitution.</strong> The device layer calls
+        <code>hw_i2c_write(...)</code>; the target build links <code>hw_i2c_stm32.c</code> and the
+        host build links <code>hw_i2c_fake.c</code>. Zero runtime cost, and the build system decides
+        &mdash; which is <a href="36-build-and-linker-script.html">chapter 36</a>.</li>
+    <li><strong>A struct of function pointers</strong> passed at init, when you need two
+        implementations in the same binary, or a test that swaps behaviour mid-run. Costs an indirect
+        call; usually worth it at exactly one layer and nowhere else.</li>
+  </ul>
+  <p>
+    What the seam buys, in the order you will appreciate it: unit tests that run on every commit
+    (<a href="64-testing-firmware.html">chapter 64</a>); protocol and state-machine logic exercised
+    against recorded data; a simulator that lets the application team work before the board exists;
+    and the ability to answer &ldquo;does this bug need hardware to reproduce?&rdquo; with evidence.
+  </p>
+  <p>
+    The trade to state honestly in an interview: <strong>a seam has a cost, and not every one pays for
+    itself</strong>. Abstracting a GPIO toggle behind three layers to make it testable is architecture
+    theatre &mdash; there is nothing to test. Put the seam where the <em>logic</em> is: the protocol
+    parser, the control law, the state machine, the parameter store. Driver code stays thin enough to
+    verify with <a href="60-the-debugger.html">a debugger</a> and
+    <a href="62-scope-and-logic-analyser.html">a scope</a>, which is what those tools are for.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>architecture, layering, hal, driver, interface, dependency, inversion, port, adapter, testability</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>The vendor HAL leaks upwards, and six months later the architecture exists only in the
+    diagram.</strong>
+  </p>
+  <p>
+    It happens the same way every time. CubeMX generates <code>main.c</code> with handles such as
+    <code>hi2c1</code> and <code>htim3</code> as globals in the project root
+    (<a href="30-cube-hal-ll-registers.html">chapter 30</a>). Someone needs a sensor read from the
+    application state machine on a deadline, calls <code>HAL_I2C_Mem_Read(&amp;hi2c1, ...)</code>
+    directly, and it works. Now the application layer depends on the vendor library, the host build
+    will not compile, and the next person copies the pattern because it is the pattern they found.
+  </p>
+  <p>
+    Three defences, in increasing order of effectiveness. <strong>Regenerate into a fixed place</strong>
+    &mdash; keep CubeMX output confined to the hardware layer, and treat it as a generated
+    dependency rather than as your <code>main</code>. <strong>Make the host build part of CI</strong>:
+    a layering violation then fails a build within minutes rather than being discovered at the next
+    architecture review, because the fake hardware layer simply has no <code>HAL_I2C_Mem_Read</code>
+    in it. And <strong>check the include graph mechanically</strong> &mdash; twenty lines of script
+    that greps for forbidden includes per directory is a real architectural control, and the only one
+    that is still enforced when you are on holiday.
+  </p>
+  <p>
+    The mirror-image failure is worth naming too: a hardware abstraction so elaborate that it
+    reimplements the vendor HAL with different names, costs weeks, and abstracts nothing because it
+    has exactly one implementation. The question that separates the two is
+    <em>&ldquo;what is the second implementation?&rdquo;</em> If the honest answer is &ldquo;the test
+    fake&rdquo;, that is a good answer. If there is no answer, do not build the layer.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> This is the one chapter where the exercise is refactoring rather than
+  building, and it is worth doing on code you already have.</p>
+  <pre><code>1. Take any Cube project you have -- even a blinking LED with a UART --
+   and draw its real include graph:
+
+     grep -rn '#include "' Core Drivers | sed 's/:.*#include "/ -> /'
+
+   Not the diagram you would draw; the one the compiler sees. Almost
+   every beginner project turns out to be one layer with a HAL under it.
+
+2. Restructure it into hw/ dev/ app/ without changing behaviour. Move
+   files, fix includes, keep it compiling at every step. Time yourself:
+   on a small project it is an hour, and it is an hour that teaches
+   more about coupling than any article.
+
+3. Now add the host build. A second Makefile target that compiles
+   app/ and dev/ with gcc for your PC, plus hw/fake/*.c that records
+   calls instead of touching registers. When `make host && ./test`
+   runs your state machine on a laptop, the architecture is real.
+
+4. Write the layering check and make it fail:
+
+     ! grep -rl 'stm32\|HAL_' app/ dev/ || (echo "layer violation"; exit 1)
+
+   Then deliberately add a HAL call in app/ and watch it fail. A control
+   you have never seen fire is a control you do not know works.
+
+5. Take one module and make its type opaque: move the struct from the
+   header into the .c, add an init that takes a pointer, and fix
+   everything that breaks. What breaks IS the coupling you had, and
+   the list is the honest measure of the old design.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Three layers: hardware, device, application</strong> &mdash; and the file tree should
+        make them visible.</li>
+    <li><strong>Dependencies point downwards only.</strong> An include from a lower layer to a higher
+        one is a defect, and it is mechanically checkable.</li>
+    <li><strong>Notify upwards with a registered callback</strong>, never with a call upwards.</li>
+    <li><strong>A peripheral name may appear only in the hardware layer.</strong> If
+        <code>TIM3</code> is in the application, the architecture has already failed.</li>
+    <li><strong>Headers promise behaviour, not structure.</strong> Opaque types, explicit instances,
+        engineering units, returned errors, no globals, no <code>malloc</code>.</li>
+    <li><strong>Decide error handling and the time source once</strong>, at the start. Retrofitting
+        either is a rewrite.</li>
+    <li><strong>Put the seam where the logic is</strong> &mdash; protocol, control law, state machine
+        &mdash; not around a GPIO toggle.</li>
+    <li><strong>The host build is the architecture's test.</strong> If the code still compiles for a
+        PC, the layering held; if it does not, it leaked.</li>
+    <li><strong>Enforce layering with a script in CI</strong>, because a rule nothing checks is a
+        preference.</li>
+    <li><strong>Before adding an abstraction, name the second implementation.</strong> &ldquo;The test
+        fake&rdquo; counts; silence does not.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Come strutturerebbe da zero il software di una scheda?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Parto da tre livelli: il livello hardware, dove stanno startup, clock e i driver che
+    toccano i registri o la HAL del produttore; un livello dispositivo, un modulo per ogni cosa reale
+    &mdash; la pompa, il sensore, il link di comunicazione &mdash; che parla in unit&agrave;
+    ingegneristiche e non sa su che chip gira; e il livello applicativo, che &egrave; il comportamento
+    del prodotto, le macchine a stati, gli allarmi. La regola &egrave; una sola: le dipendenze vanno
+    solo verso il basso. Se un driver deve avvisare qualcuno, non chiama in su, ma richiama una
+    callback che il livello sopra ha registrato. Il motivo pratico &egrave; che cos&igrave; i due
+    livelli superiori sono C normale: li compilo per PC con un finto livello hardware sotto e li
+    testo in CI, senza scheda. E quello per me &egrave; anche il test dell&rsquo;architettura stessa
+    &mdash; se la build per PC non compila pi&ugrave;, vuol dire che la HAL &egrave; risalita dove non
+    doveva, che &egrave; il modo tipico in cui questi progetti si degradano: uno chiama
+    <code>HAL_I2C_Mem_Read</code> direttamente dall&rsquo;applicativo perch&eacute; ha fretta, e da l&igrave;
+    in poi lo fanno tutti. Per questo metto anche un controllo automatico sugli include, venti righe
+    di script: una regola che nessuno verifica &egrave; solo una preferenza. Dove <em>non</em> metto
+    astrazioni: intorno a un GPIO. Prima di aggiungere un livello mi chiedo quale sia la seconda
+    implementazione; se non c&rsquo;&egrave;, non lo aggiungo.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

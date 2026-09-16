@@ -18,25 +18,208 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 6 — Real-time and the RTOS <span>&rsaquo;</span> Chapter 43</p>
+<p class="crumbs">Part 6 &mdash; Real-time and the RTOS <span>&rsaquo;</span> Chapter 43</p>
 <h1>Timing, jitter, and how you measure it</h1>
-<p class="lede">A GPIO pin and an oscilloscope beat any estimate. Cycle counters, trace, and measuring what you claim to have optimised.</p>
+<p class="lede">
+  The advert says <em>ottimizzare</em>. You cannot optimise what you have not measured, and in
+  firmware the cheapest instrument &mdash; one spare pin and a scope &mdash; beats every estimate and
+  most profilers.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The advert says 'ottimizzare'. Optimising without measuring is the thing this chapter exists to stop.</p>
+  <p>
+    This chapter answers the second verb in <em>&ldquo;Sviluppare e <strong>ottimizzare</strong>
+    firmware in C/C++&rdquo;</em>. That word is why the role exists: somebody will hand you code that
+    works and ask you to make it meet a deadline it currently misses.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="the-pin">A pin and a scope</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Set a spare pin high when a piece of code starts and low when it ends. Now look at that pin with
+    an instrument. The width of the pulse is exactly how long the code took, in nanoseconds, with no
+    guessing and almost no effect on the thing you are measuring.
+  </p>
+  <p>
+    It sounds too simple to be the professional answer. It is the professional answer.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    A GPIO write is one store instruction &mdash; a handful of nanoseconds &mdash; so the
+    instrument's own cost is negligible against anything you would want to measure. Use the atomic
+    set/reset register rather than a read-modify-write on the output register, and drop to registers
+    rather than the HAL here specifically, because a HAL call has its own parameter checking in the
+    measurement path (<a href="30-cube-hal-ll-registers.html">chapter 30</a>):
+  </p>
+  <pre><code>#define PROBE_HI()  (GPIOB-&gt;BSRR = (1u &lt;&lt; 7))
+#define PROBE_LO()  (GPIOB-&gt;BSRR = (1u &lt;&lt; (7 + 16)))
+
+void TIM2_IRQHandler(void) {
+    PROBE_HI();
+    ...
+    PROBE_LO();
+}</code></pre>
+  <p>
+    What the trace tells you that a number cannot:
+  </p>
+  <ul>
+    <li><strong>Pulse width</strong> &mdash; execution time. Set the scope to infinite persistence or
+        use its measurement statistics, run for minutes, and read the <em>maximum</em>, not the
+        mean (<a href="37-what-real-time-means.html">chapter 37</a>).</li>
+    <li><strong>Gap between pulses</strong> &mdash; the period, and its variation is the jitter.</li>
+    <li><strong>Two probes</strong> &mdash; latency between an event and the response to it. Toggle
+        one pin in the ISR and another at the top of the woken task, and you have measured the
+        context-switch path, which is the number
+        <a href="42-isr-and-the-rtos.html">chapter 42</a> is really about.</li>
+  </ul>
+  <p>
+    Put a probe pin on the schematic before the board is made. Asking the hardware engineer for two
+    spare test points early costs nothing and is one of the more useful things you can ask for
+    (<a href="63-reading-a-schematic.html">chapter 63</a>).
+  </p>
+</div>
+
+<h2 id="counters">Counting cycles when you have no scope</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The processor can also count its own clock ticks. Read the counter before and after, subtract,
+    and you have the duration in cycles &mdash; no instrument needed, though now the measurement
+    itself costs something.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    On Cortex-M3 and above the <strong>DWT cycle counter</strong> is a free-running 32-bit counter at
+    the core clock. It needs enabling once, and then it is the finest-grained timer you have:
+  </p>
+  <pre><code>CoreDebug-&gt;DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+DWT-&gt;CYCCNT = 0;
+DWT-&gt;CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
+
+uint32_t t0 = DWT-&gt;CYCCNT;
+thing_to_measure();
+uint32_t dt = DWT-&gt;CYCCNT - t0;     /* unsigned: correct across wrap */</code></pre>
+  <p>
+    Note the subtraction is unsigned, so it stays correct when the counter wraps &mdash; the reason
+    timer arithmetic uses unsigned types (<a href="03-types-and-integers.html">chapter 03</a>). At
+    168 MHz it wraps about every 25 seconds, so it measures short things.
+  </p>
+  <p>
+    Do not use it to store a histogram in a fast path without thinking: the read is cheap but the
+    storage is not. The usual pattern is to keep only a running maximum, which is one compare and one
+    conditional store, and which is also the only statistic that matters.
+  </p>
+  <p>
+    <strong>SWO and ITM trace</strong> is the level above: the core streams timestamped events out of
+    a dedicated pin with very low overhead, and a debugger or an analyser reconstructs a timeline
+    (<a href="61-printf-and-tracing.html">chapter 61</a>). An RTOS-aware trace tool built on it shows
+    you every context switch, which task was running when, and where a deadline was missed &mdash;
+    and it is the only tool that makes a scheduling bug visible directly rather than by inference.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>timing, measurement, jitter, gpio, toggle, oscilloscope, dwt, cycle, counter, systick</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>Measuring changes what you measure, and printf changes it enormously.</strong>
+  </p>
+  <p>
+    A blocking <code>printf</code> over UART at 115200 baud takes about 87 &micro;s per character. A
+    forty-character line is 3.5 ms. Putting that inside the interrupt whose latency you were
+    investigating does not slow the measurement down slightly &mdash; it makes the interrupt the
+    dominant term in its own measurement, and it will usually make the original symptom disappear,
+    which is the worst possible outcome because it looks like a fix.
+  </p>
+  <p>
+    The related and subtler one: <strong>halting the core at a breakpoint does not halt the
+    world</strong>. Peripherals keep running, the UART keeps receiving into an overrun, DMA keeps
+    transferring, and the plant keeps moving (<a href="60-the-debugger.html">chapter 60</a>). Timing
+    problems are the class of bug least amenable to a debugger and most amenable to a pin.
+  </p>
+  <p>
+    And beware of measuring the wrong thing correctly: a mean of 40 &micro;s over a million samples
+    is a true statement that tells you nothing if one sample in a million took 9 ms. Record the
+    maximum, or a histogram, or both. The tail is the product.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> Steps 1 and 2 need a board; step 3 is the honest fallback if you have no
+  instrument yet.</p>
+  <pre><code>1. Instrument your ISR with PROBE_HI/PROBE_LO and put a logic analyser
+   on it. Run for two minutes with the system under realistic load.
+   Read the MAXIMUM pulse width, not the average. That number is the
+   contribution your handler makes to every lower-priority interrupt's
+   worst case, and almost nobody you interview against will have
+   measured theirs.
+
+2. Now find the thing that dominates. Add a second probe around your
+   longest critical section -- every __disable_irq() / taskENTER_CRITICAL
+   region -- and compare the widths. In most systems the critical
+   section, not the handler, is the largest single term.
+
+3. No instrument? Use the DWT counter and keep a running maximum in a
+   global. Print it once a second from a LOW-priority task, never from
+   the path you are measuring:
+
+     static volatile uint32_t worst;
+     uint32_t t0 = DWT-&gt;CYCCNT;
+     ...
+     uint32_t dt = DWT-&gt;CYCCNT - t0;
+     if (dt &gt; worst) worst = dt;
+
+4. Then do the optimisation, and measure again. If you cannot show the
+   before and after numbers, you have not optimised anything -- you have
+   changed something.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>A spare pin and an instrument beat every estimate</strong>, and the probe's own cost is one store.</li>
+    <li><strong>Use the atomic set/reset register for the probe</strong>, and registers rather than the HAL in a measurement path.</li>
+    <li><strong>Read the maximum, over a long run under load.</strong> The mean is nearly meaningless.</li>
+    <li><strong>Two probes measure latency</strong> &mdash; one in the ISR, one in the woken task.</li>
+    <li><strong>The DWT cycle counter is the finest timer you have</strong>, and unsigned subtraction stays correct across its wrap.</li>
+    <li><strong>Keep a running maximum, not a histogram, in a fast path.</strong></li>
+    <li><strong>printf in the path you are measuring becomes the measurement</strong>, and often hides the symptom.</li>
+    <li><strong>Halting the core does not halt the peripherals, the DMA or the plant.</strong></li>
+    <li><strong>Ask for probe test points before the board is made.</strong></li>
+    <li><strong>No before-and-after numbers means you changed something, not optimised it.</strong></li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Come misurerebbe se una routine rispetta i tempi?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Nel modo pi&ugrave; stupido e pi&ugrave; affidabile: alzo un pin all&rsquo;inizio e lo
+    abbasso alla fine, e guardo la larghezza dell&rsquo;impulso con un analizzatore logico o un
+    oscilloscopio. Una scrittura su BSRR &egrave; una singola istruzione, quindi la sonda non
+    perturba la misura. Poi guardo il <em>massimo</em> su una corsa lunga e sotto carico realistico,
+    non la media: la media di quaranta microsecondi non mi dice niente se uno su un milione ne fa
+    nove millisecondi, e in real-time quello che conta &egrave; la coda. Con due sonde misuro anche
+    la latenza: una la alzo nell&rsquo;ISR, l&rsquo;altra all&rsquo;inizio del task che ho svegliato,
+    e ho il costo del cambio di contesto. Se non ho lo strumento uso il contatore di cicli DWT e mi
+    tengo solo il massimo in una variabile, che poi stampo da un task a bassa priorit&agrave; &mdash;
+    mai dal percorso che sto misurando, perch&eacute; una <code>printf</code> bloccante a 115200 fa
+    ottantasette microsecondi a carattere e diventa lei il termine dominante, oltre a far sparire il
+    sintomo, che &egrave; il risultato peggiore perch&eacute; sembra una soluzione. Una cosa che
+    chiedo sempre all&rsquo;hardwarista: due test point liberi sulla scheda, prima che vada in
+    produzione.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

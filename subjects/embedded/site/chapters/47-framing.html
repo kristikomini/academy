@@ -18,25 +18,215 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 7 — Serial protocols <span>&rsaquo;</span> Chapter 47</p>
+<p class="crumbs">Part 7 &mdash; Serial protocols <span>&rsaquo;</span> Chapter 47</p>
 <h1>Framing: knowing where a message starts</h1>
-<p class="lede">A byte stream is not a message stream. Delimiters, length prefixes, escaping, timeouts and checksums, and the resynchronisation you must design.</p>
+<p class="lede">
+  A UART delivers a stream of bytes. Your application needs a stream of <em>messages</em>, and
+  nothing in the hardware tells you where one ends and the next begins. Getting that boundary wrong
+  produces a bug that looks exactly like a hardware fault, which is why it is worth designing rather
+  than discovering.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The bug that looks like a hardware fault and is not. LogiFlow chapter 32d covers the same idea from the PC side.</p>
+  <p>
+    <strong>Not named in this advert</strong>, which says <em>&ldquo;Implementare e testare protocolli
+    di comunicazione seriale&rdquo;</em>. This is most of what the word <em>testare</em> in that line
+    actually costs: writing the handler is the easy half, and proving it survives a truncated frame
+    is the half that takes the time.
+  </p>
+  <p>
+    LogiFlow chapter 32d covers the same idea from the PC side, where a library has usually already
+    solved it. Here you are writing the parser.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="the-problem">A byte stream is not a message stream</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Imagine somebody reading you letters, one at a time, with no pauses and no punctuation. You would
+    hear all the letters correctly and still have no idea where one word ends.
+  </p>
+  <p>
+    That is what a serial port gives you. The bytes are right; the boundaries are your problem. And
+    if you ever get the boundary wrong, everything after it is wrong too, until something puts you
+    back in step.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Three assumptions beginners make that are all false, and each costs a day:
+  </p>
+  <p>
+    <strong>&ldquo;A read returns one message.&rdquo;</strong> It returns whatever bytes had arrived.
+    One call may hand you half a message, or two and a half messages. This is true on a UART and it
+    is equally true of a TCP socket, which is a byte stream with the same property
+    (<a href="53-modbus-tcp.html">chapter 53</a>).
+  </p>
+  <p>
+    <strong>&ldquo;Messages arrive whole.&rdquo;</strong> A cable pulled out mid-transmission, a
+    device reset, or a buffer overrun at either end leaves a partial message in your buffer forever
+    unless you have designed a way out.
+  </p>
+  <p>
+    <strong>&ldquo;If I lose sync I can restart the device.&rdquo;</strong> You cannot &mdash; it is a
+    machine in a plant. <strong>Resynchronisation must be automatic and must be designed in</strong>,
+    because it is the only thing standing between one corrupted byte and a permanently dead link.
+    This is the requirement most often missed.
+  </p>
+</div>
+
+<h2 id="four-schemes">Four ways to mark a boundary</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    There are only four basic ideas: use a special byte to mark the end, say up front how long the
+    message is, use silence as the separator, or make every message the same fixed size.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    <strong>1. Delimiter.</strong> A reserved byte marks the end &mdash; newline for a text protocol,
+    <code>0x7E</code> for HDLC and SLIP. Simple and self-resynchronising: after any corruption, the
+    next delimiter puts you back in step, which is a genuinely valuable property.
+  </p>
+  <p>
+    The cost is that the delimiter must never occur in the payload, so binary data needs
+    <strong>escaping</strong>. Classic byte stuffing replaces the delimiter inside the payload with a
+    two-byte sequence, which makes the encoded length data-dependent &mdash; worst case doubles.
+    <strong>COBS</strong> (Consistent Overhead Byte Stuffing) solves that properly: it removes all
+    zero bytes from the payload with a strictly bounded overhead of one byte per 254, so
+    <code>0x00</code> becomes an unambiguous frame delimiter. If you are designing a binary protocol
+    from scratch, COBS plus a zero delimiter is the answer worth knowing.
+  </p>
+  <p>
+    <strong>2. Length prefix.</strong> A header gives the payload length. Efficient, no escaping, and
+    it lets you allocate or reserve exactly once. The weakness is that it is <em>not</em>
+    self-resynchronising: if the length field itself is corrupted you consume the wrong number of
+    bytes and every subsequent message is misparsed. Mitigate with a fixed <strong>sync
+    word</strong> before the length, a sanity check on the length against your buffer size, and a
+    checksum that will fail and force a rescan.
+  </p>
+  <p>
+    <strong>3. Silence.</strong> Time is the delimiter: a quiet line means the message ended. This is
+    <a href="50-modbus-rtu.html">Modbus RTU's</a> 3.5-character rule. It needs no escaping and no
+    overhead at all, and it is why RTU frames are so compact &mdash; but it makes framing a
+    <em>timing</em> property, which is hard on a general-purpose OS and natural on a microcontroller
+    with UART idle-line detection (<a href="46-uart.html">chapter 46</a>).
+  </p>
+  <p>
+    <strong>4. Fixed length.</strong> Every message the same size. Trivial and used more than people
+    admit, in sensor links and internal board-to-board buses. Resynchronisation still needs a sync
+    word, or one lost byte shifts you permanently.
+  </p>
+  <p>
+    Whichever you choose, add a <strong>checksum or CRC</strong>. A parity bit catches one bit;
+    <strong>CRC-16</strong> catches all single and double bit errors, all odd numbers of errors, and
+    any burst up to 16 bits, for two bytes and a small table. A plain additive checksum is much
+    weaker &mdash; it cannot detect reordered bytes and misses many multi-bit patterns &mdash; and is
+    worth using only where the standard demands it.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>framing, delimiter, sentinel, length, prefix, cobs, byte, stuffing, escape, slip</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>A length field you have not sanity-checked is a remote crash, and on a networked device
+    it is a security bug rather than a robustness one.</strong>
+  </p>
+  <pre><code>uint16_t len = (buf[2] &lt;&lt; 8) | buf[3];
+memcpy(frame, &amp;buf[4], len);          /* len can be 65535. frame is 256. */</code></pre>
+  <p>
+    Check the length against your actual buffer before you use it, every time, and treat a failure as
+    a reason to discard and resynchronise rather than to continue. The same check belongs on every
+    index derived from received data. Once the board has an Ethernet port, the attacker chooses that
+    length (<a href="14-strings-and-buffers.html">chapter 14</a>).
+  </p>
+  <p>
+    The companion trap is <strong>having no timeout</strong>. If the parser is waiting for the
+    remaining bytes of a frame that will never arrive, it must give up &mdash; after an
+    inter-character timeout &mdash; discard, and go back to hunting for a start. A parser that can
+    enter a state it cannot leave is not a parser, it is a latch, and it takes exactly one pulled
+    cable to prove it.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> Entirely on a PC. Framing is pure logic, so this is one of the places where
+  off-target testing (<a href="64-testing-firmware.html">chapter 64</a>) is not a compromise at all
+  &mdash; it is better than testing on the board, because you can inject faults precisely.</p>
+  <pre><code>1. Write the parser as a state machine that consumes ONE BYTE at a time
+   and returns "no frame yet" or "here is a frame". That shape is the
+   whole trick: it never blocks, it never assumes a read boundary, and
+   it compiles and runs on your laptop.
+
+     typedef enum { HUNT, LEN, PAYLOAD, CRC_LO, CRC_HI } st_t;
+     bool frame_feed(uint8_t b, frame_t *out);
+
+2. Now test it the way it will actually be attacked. Feed it:
+
+     - a good frame, one byte at a time            -> accepted
+     - a good frame, all at once                   -> accepted
+     - TWO frames in one buffer                    -> both accepted
+     - a frame split after every possible byte     -> accepted, all N
+     - one byte flipped in the payload             -> rejected by CRC
+     - a length field of 0xFFFF                    -> rejected, no crash
+     - half a frame, then silence, then a good one -> the good one is
+                                                      accepted
+     - a megabyte of random bytes, then a good one -> accepted
+
+   That last two are the resynchronisation tests, and they are the ones
+   people skip. Loop the random-bytes test with a different seed each
+   run in CI; it is a fuzzer in three lines.
+
+3. Only once all of that passes, connect it to a real UART. Every bug
+   you would otherwise have chased with an oscilloscope has already
+   been found on your laptop, in milliseconds, reproducibly.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>A read returns bytes, not messages</strong> &mdash; possibly half a message, possibly two.</li>
+    <li><strong>Resynchronisation must be designed in</strong>, because you cannot go and restart a machine in a plant.</li>
+    <li><strong>Delimiters self-resynchronise; length prefixes do not.</strong> Give a length-prefixed protocol a sync word and a CRC.</li>
+    <li><strong>COBS gives a bounded one-byte-per-254 overhead</strong> and makes zero an unambiguous delimiter.</li>
+    <li><strong>Silence as a delimiter costs nothing and makes framing a timing property</strong> &mdash; natural with UART idle-line detection.</li>
+    <li><strong>CRC-16 catches all bursts up to 16 bits</strong>; an additive checksum is much weaker and misses reordering.</li>
+    <li><strong>Sanity-check every received length against your buffer.</strong> On a networked device the attacker picks it.</li>
+    <li><strong>Every parser state needs a timeout out of it.</strong> A parser that can get stuck is a latch.</li>
+    <li><strong>Write the parser as a byte-at-a-time state machine</strong>, so it is testable on a PC and never assumes a read boundary.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Come gestisce la ricezione di messaggi su una seriale?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;La prima cosa che tengo presente &egrave; che la seriale mi d&agrave; byte, non
+    messaggi: una lettura pu&ograve; darmi mezzo frame o due e mezzo, quindi il parser lo scrivo
+    come una macchina a stati che consuma un byte alla volta e risponde &lsquo;non ancora&rsquo;
+    oppure &lsquo;ecco il frame&rsquo;. Cos&igrave; non blocca mai e non assume niente su dove
+    finisce una lettura &mdash; e, cosa non secondaria, lo compilo e lo testo sul PC senza scheda.
+    Sul delimitare i messaggi la scelta dipende: con un delimitatore mi risincronizzo da solo dopo
+    una corruzione, ma sul binario mi serve l&rsquo;escaping, e in quel caso uso COBS che ha un
+    overhead limitato; con un campo lunghezza sono pi&ugrave; efficiente ma non mi risincronizzo, e
+    allora ci metto una parola di sincronismo davanti e un CRC. Su Modbus RTU il delimitatore
+    &egrave; il silenzio, e l&igrave; me lo fa l&rsquo;hardware con l&rsquo;idle line. Due cose che
+    controllo sempre: la lunghezza ricevuta la confronto con il mio buffer prima di usarla,
+    perch&eacute; altrimenti &egrave; una <code>memcpy</code> da 65535 byte in un array da 256, e
+    con una porta Ethernet quella non &egrave; robustezza ma sicurezza; e ogni stato del parser deve
+    avere un timeout per uscirne, altrimenti basta staccare un cavo a met&agrave; frame e resta
+    l&igrave; per sempre.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

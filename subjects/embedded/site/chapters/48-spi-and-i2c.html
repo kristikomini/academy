@@ -18,25 +18,210 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 7 — Serial protocols <span>&rsaquo;</span> Chapter 48</p>
+<p class="crumbs">Part 7 &mdash; Serial protocols <span>&rsaquo;</span> Chapter 48</p>
 <h1>SPI and I2C</h1>
-<p class="lede">The two buses inside the box. Four wires and full duplex, or two wires and addressing, plus the I2C lockup that needs a manual recovery.</p>
+<p class="lede">
+  The two buses inside the box. Four wires and full duplex, or two wires and addressing &mdash; and
+  the I2C lockup that needs a recovery sequence you have to write yourself, which is a real
+  interview question because it only happens to people who have shipped something.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> Every sensor on the board speaks one of these two, and the I2C recovery sequence is a real interview question.</p>
+  <p>
+    <strong>Not named in this advert</strong>, which says <em>&ldquo;protocolli di comunicazione
+    seriale&rdquo;</em> and means the ones that leave the box. These are the ones that do not: every
+    sensor on the proprietary board in this job speaks one of the two, so you will use them before
+    you use <a href="50-modbus-rtu.html">Modbus</a>.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="spi">SPI: fast, simple, and a wire per device</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Four wires: a clock, a wire out, a wire in, and one select wire per device. The controller pulls
+    a device's select line low to say &ldquo;I am talking to you&rdquo;, then ticks the clock. On
+    every tick a bit goes out and a bit comes back, at the same time.
+  </p>
+  <p>
+    It is fast and there is almost nothing to go wrong &mdash; except that every extra device needs
+    another select wire, and pins run out.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Synchronous, full duplex, single controller. SCLK, MOSI, MISO, and one CS per peripheral. Tens of
+    megahertz is routine, which is why it carries displays, flash memory, ADCs and radios.
+  </p>
+  <p>
+    There is no addressing, no acknowledgement and no error detection at all &mdash; if a device is
+    absent you read whatever the floating MISO line happens to be, usually all ones or all zeros, and
+    nothing tells you. Sanity-check by reading a known register: almost every SPI sensor has a
+    &ldquo;who am I&rdquo; register with a fixed value, and checking it at startup turns a silent
+    wiring fault into a clear error message.
+  </p>
+  <p>
+    <strong>The mode is the thing that catches people.</strong> Two bits, CPOL and CPHA, giving modes
+    0 to 3: CPOL is the idle level of the clock, CPHA selects whether data is sampled on the first
+    or second edge. Get it wrong and you read shifted or garbage data with no error indication. Mode
+    0 and mode 3 are by far the most common; the datasheet states which, and the timing diagram in
+    the datasheet is the authority when the prose is ambiguous.
+  </p>
+  <p>
+    Because it is full duplex, every transfer is an <em>exchange</em>: to read N bytes you must clock
+    out N bytes of anything. That is why SPI driver APIs take both a transmit and a receive buffer,
+    and why <code>NULL</code> for one of them means &ldquo;send zeros&rdquo; or &ldquo;discard&rdquo;
+    rather than &ldquo;skip&rdquo;.
+  </p>
+</div>
+
+<h2 id="i2c">I2C: two wires, and everything that follows from that</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Two wires shared by everything: one clock, one data. Because they are shared, no device is
+    allowed to drive them high &mdash; each can only pull them down, and a resistor pulls them back
+    up. That way two devices talking at once cannot fight and damage each other.
+  </p>
+  <p>
+    Each device has an address, so the controller says the address first and only that device
+    replies. Fewer wires, more rules.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    SDA and SCL, both <strong>open-drain</strong> with external pull-up resistors &mdash; typically
+    4.7 k&Omega; at 100 kHz standard mode, lower at 400 kHz fast mode. Open-drain is what makes
+    multi-controller arbitration and clock stretching possible, and it is also what limits the speed:
+    the rise time is set by the pull-up resistance and the bus capacitance, and too many devices on
+    too long a track means the edges never get high enough.
+  </p>
+  <p>
+    A transaction is: START, 7-bit address plus a read/write bit, then bytes each followed by an
+    <strong>ACK</strong> from the receiver, then STOP. The ACK is the useful part &mdash; unlike SPI,
+    a missing device produces a NACK on the address byte, which is a real error you can report. A
+    <strong>repeated START</strong> (a START without an intervening STOP) is how you do the standard
+    write-register-address-then-read-data sequence without releasing the bus, and most sensor
+    datasheets require it.
+  </p>
+  <p>
+    <strong>Clock stretching</strong>: a target that needs time can hold SCL low, and the controller
+    must wait. Correct behaviour, occasionally not implemented properly on either side, and a common
+    cause of interoperability problems with slow sensors and with software I2C implementations.
+  </p>
+  <p>
+    Address conflicts are a practical planning issue: many sensors offer only one or two selectable
+    addresses, so two of the same part on one bus may be impossible. The fixes are an address-select
+    pin, a second I2C peripheral, or an I2C multiplexer &mdash; and it is much better to discover
+    this while reading the schematic than after the board is made
+    (<a href="63-reading-a-schematic.html">chapter 63</a>).
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>spi, mosi, miso, sclk, cs, chip, select, mode, cpol, cpha</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>An I2C bus can lock up permanently, and no amount of resetting your microcontroller will
+    clear it.</strong> This is the question that separates people who have shipped an I2C product
+    from people who have used one.
+  </p>
+  <p>
+    The mechanism: the controller is reset &mdash; by a watchdog, a debugger, or a power glitch &mdash;
+    in the middle of a read, at a moment when the target is driving SDA low to output a zero bit. The
+    target is now waiting for more clock pulses to finish its byte. The controller restarts, sees SDA
+    stuck low, and concludes the bus is busy. It cannot issue a START, because a START requires SDA to
+    fall while SCL is high, and SDA is already low. Deadlock, and it survives your reset because the
+    stuck device is the <em>other</em> one.
+  </p>
+  <p>
+    The recovery sequence is standard and every robust driver should have it, run once at startup:
+  </p>
+  <pre><code>/* 1. Take SCL and SDA off the I2C peripheral, make them GPIO open-drain.
+   2. Clock SCL up to 9 times, checking SDA after each pulse.
+      Nine pulses lets the target finish any byte it was mid-way through
+      and then release SDA on the ACK slot.
+   3. When SDA goes high, generate a manual STOP:
+      SDA low, SCL high, then SDA high while SCL stays high.
+   4. Hand the pins back to the I2C peripheral and re-init it. */</code></pre>
+  <p>
+    Related and worth knowing: on several STM32 families the I2C peripheral itself can latch into a
+    busy state, and the erratum's fix is essentially the same &mdash; reset the peripheral through
+    its own software-reset bit as well as bit-banging the bus clear. Read the errata for your part.
+    That habit generalises well beyond I2C.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> A cheap logic analyser with protocol decoding &mdash; under twenty euro &mdash;
+  is the single highest-value purchase for this chapter, because both buses become readable.</p>
+  <pre><code>1. Wire any I2C sensor and decode the bus. Look at a full transaction:
+   START, address+W, ACK, register, ACK, repeated START, address+R, ACK,
+   data, NACK, STOP. Seeing the ACK bits is what makes I2C click.
+
+2. Deliberately address a device that is not there. Watch the NACK on
+   the address byte, and confirm your driver reports it rather than
+   returning stale data. Then do the SPI equivalent -- remove the device
+   and read a register. You get plausible-looking bytes and no error at
+   all. That contrast is the main reason to check a "who am I" register
+   on every SPI part at startup.
+
+3. Reproduce the I2C lockup on purpose, which is the exercise that
+   matters. Start a multi-byte read, and halt the core at a breakpoint
+   midway through (or hit the reset button). On restart, the bus is
+   stuck and your driver hangs or times out forever. Now add the nine-
+   clock recovery at init and watch it come back every time.
+
+4. On SPI, set the mode wrong on purpose -- mode 0 instead of mode 3 --
+   and look at the decoded bytes. No error is reported anywhere; the
+   data is simply wrong. Then find the timing diagram in the sensor's
+   datasheet and derive the correct mode from it rather than guessing.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>SPI is fast, full duplex and has no error detection at all.</strong> A missing device reads as plausible bytes.</li>
+    <li><strong>Check a &ldquo;who am I&rdquo; register on every SPI device at startup</strong> &mdash; it is the only error reporting you get.</li>
+    <li><strong>CPOL and CPHA give four SPI modes</strong>, and the wrong one produces wrong data with no indication. The datasheet timing diagram is the authority.</li>
+    <li><strong>Every SPI transfer is an exchange:</strong> to read N bytes you clock out N bytes.</li>
+    <li><strong>I2C is open-drain with pull-ups</strong>, which is what enables arbitration and clock stretching and what limits the speed.</li>
+    <li><strong>I2C acknowledges, so a missing device NACKs the address</strong> &mdash; a real, reportable error.</li>
+    <li><strong>A repeated START is how you write a register address and then read</strong> without releasing the bus.</li>
+    <li><strong>Plan addresses early.</strong> Two identical sensors may be impossible on one bus.</li>
+    <li><strong>An I2C bus can lock with SDA held low by a target</strong>, and resetting your MCU does not clear it.</li>
+    <li><strong>Ship the nine-clock recovery sequence in every I2C driver</strong>, run at startup.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Che differenza c&rsquo;&egrave; fra SPI e I2C, e quando sceglie l&rsquo;uno o
+  l&rsquo;altro?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;SPI &egrave; veloce e semplice &mdash; clock, due linee dati e un chip select per
+    dispositivo, full duplex, decine di megahertz &mdash; ma non ha n&eacute; indirizzamento
+    n&eacute; acknowledge: se il sensore non c&rsquo;&egrave; leggo la linea che fluttua e nessuno mi
+    dice niente. Per questo su ogni device SPI controllo il registro &lsquo;who am I&rsquo; in fase
+    di init, che &egrave; l&rsquo;unica diagnostica che ho. E il modo, CPOL e CPHA, lo ricavo dal
+    diagramma dei tempi del datasheet, perch&eacute; sbagliandolo i dati sono sbagliati senza nessun
+    errore. I2C usa due soli fili con indirizzo e ACK, quindi un dispositivo mancante d&agrave; un
+    NACK sull&rsquo;indirizzo, che &egrave; un errore vero che posso segnalare, e mi fa risparmiare
+    pin. Costa velocit&agrave; e mi obbliga a pensare ai conflitti di indirizzo. La cosa che
+    metterei sempre in un driver I2C &egrave; la sequenza di recovery: se il micro si resetta a
+    met&agrave; di una lettura, il target resta a tenere SDA basso in attesa di clock, io vedo il bus
+    occupato e non riesco pi&ugrave; a generare uno START &mdash; e resettare il mio micro non serve
+    a niente, perch&eacute; quello bloccato &egrave; l&rsquo;altro. Si esce mettendo i pin in GPIO,
+    dando fino a nove impulsi di clock finch&eacute; SDA non si libera, e generando uno STOP a
+    mano.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

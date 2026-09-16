@@ -18,25 +18,222 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 4 — The microcontroller itself <span>&rsaquo;</span> Chapter 24</p>
+<p class="crumbs">Part 4 &mdash; The microcontroller itself <span>&rsaquo;</span> Chapter 24</p>
 <h1>The startup path: reset vector to main</h1>
-<p class="lede">Everything that runs before the first line of your code: the vector table, .data copied from flash, .bss zeroed, and why main is not special.</p>
+<p class="lede">
+  Everything that runs before the first line of your code. It is short, it is readable, and it is the
+  first place to look when a board does nothing at all &mdash; which is precisely the place beginners
+  never look, because they assume <code>main</code> is where programs begin.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The first thing a debugger shows you when a board is bricked, and the place beginners never look.</p>
+  <p>
+    <strong>Not named in this advert.</strong> But <em>&ldquo;debug e validazione dei sistemi&rdquo;</em>
+    covers the case where a board comes back from production and does nothing, and this chapter is
+    where that investigation starts.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="reset">What the hardware does, before any software</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    When power arrives, the processor does not know where your program is. So the rule is fixed in
+    the silicon: look at the very first two words of memory. The first is where the stack should
+    start; the second is the address of the first instruction to run.
+  </p>
+  <p>
+    That is the entire bootstrap. Two numbers, at a known place, put there by the linker.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    On reset the Cortex-M core reads two words from the start of the vector table:
+  </p>
+  <ul>
+    <li><strong>Word 0</strong> &mdash; the initial Main Stack Pointer. Note this is unusual: on most
+        architectures the stack pointer is set up by software. Here the hardware loads it, which is
+        why C code can run immediately.</li>
+    <li><strong>Word 1</strong> &mdash; the reset vector, the address of <code>Reset_Handler</code>.</li>
+  </ul>
+  <p>
+    The table is at address 0 as far as the core is concerned, and on an STM32 the boot pins select
+    what is aliased there &mdash; usually flash at 0x08000000, sometimes system memory (the
+    factory bootloader) or SRAM. Later, <code>SCB-&gt;VTOR</code> can relocate the table, which is
+    how an application launched by your own bootloader points the core at its own vectors
+    (<a href="34-flash-and-bootloader.html">chapter 34</a>).
+  </p>
+  <p>
+    The rest of the table is the exception and interrupt vectors in a fixed architectural order,
+    which is why <code>USART1_IRQHandler</code> is called by that exact name: the startup file
+    defines the table with those symbols, each declared <code>weak</code> and aliased to an infinite
+    loop. Define a function with the right name anywhere in the project and the linker uses yours
+    instead. Misspell it and yours is never called and nothing warns you &mdash; a real and
+    frustrating bug with a trivial cause.
+  </p>
+</div>
+
+<h2 id="reset-handler">What Reset_Handler does</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Before your program runs, somebody has to make its variables true. Variables that start with a
+    value have that value stored in flash and must be copied into RAM. Variables that start at zero
+    must actually be set to zero. That copying is what the startup code does.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Four steps, and the symbols come from the linker script
+    (<a href="36-build-and-linker-script.html">chapter 36</a>):
+  </p>
+  <p>
+    <strong>1. Copy <code>.data</code> from flash to RAM.</strong> An initialised global lives in two
+    places: its initial value in flash (the <em>load</em> address), and the variable itself in SRAM
+    (the <em>virtual</em> address). The loop copies from <code>_sidata</code> to between
+    <code>_sdata</code> and <code>_edata</code>. This is why an initialised global costs both flash
+    and RAM, while a <code>const</code> one costs only flash
+    (<a href="10-the-memory-map.html">chapter 10</a>).
+  </p>
+  <p>
+    <strong>2. Zero <code>.bss</code>.</strong> Uninitialised and zero-initialised globals occupy no
+    flash; the startup loop writes zeros between <code>_sbss</code> and <code>_ebss</code>. This is
+    the mechanism behind the C guarantee that globals start at zero &mdash; and it is why that
+    guarantee does <em>not</em> extend to locals, which nobody zeroes.
+  </p>
+  <p>
+    <strong>3. Call <code>SystemInit</code>.</strong> On STM32 this is where the clock tree and the
+    flash wait states are set up before the main clock is raised
+    (<a href="25-clocks-and-plls.html">chapter 25</a>). Ordering matters: raising the clock before
+    setting wait states reads garbage from flash.
+  </p>
+  <p>
+    <strong>4. Call <code>__libc_init_array</code>, then <code>main</code>.</strong> That call runs
+    the constructors of file-scope C++ objects, which is why static C++ objects work at all &mdash;
+    and why their order across translation units is unspecified &mdash; the static initialisation
+    order problem, whose C++ side is <a href="20-mixing-c-and-cpp.html">chapter 20</a>.
+  </p>
+  <p>
+    <code>main</code> is an ordinary function. Nothing in the hardware knows its name. If it returns,
+    control falls into whatever the startup file does next &mdash; usually an infinite loop, which is
+    why firmware <code>main</code> functions end in <code>for(;;)</code> rather than
+    <code>return 0</code>.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>reset, vector, table, startup, code, crt0, bootloader, data, copy, bss</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>A global that you rely on before the copy loop has run is not what you think it is</strong>
+    &mdash; and the usual way to get there is by putting code in <code>SystemInit</code>, which runs
+    <em>before</em> <code>.data</code> is copied on some startup files and after on others.
+  </p>
+  <p>
+    Check your startup file's actual order before assuming. The safe rule: <code>SystemInit</code>
+    touches only hardware registers and local variables, never initialised globals.
+  </p>
+  <p>
+    The much more common failure in this area, though, is a board that appears dead, and there are
+    only a few candidates. Attach a debugger and look at where the program counter actually is:
+  </p>
+  <ul>
+    <li><strong>Stuck in <code>Default_Handler</code></strong> &mdash; an interrupt fired that you
+        never wrote a handler for. The vector table tells you which.</li>
+    <li><strong>In <code>HardFault_Handler</code></strong> &mdash; read the fault status registers
+        rather than guessing (<a href="60-the-debugger.html">chapter 60</a>).</li>
+    <li><strong>At the reset vector, repeatedly</strong> &mdash; the watchdog is resetting you before
+        initialisation finishes (<a href="28-low-power-and-watchdog.html">chapter 28</a>). Check the
+        reset-cause flags in RCC; they survive the reset and tell you exactly which one it was.</li>
+    <li><strong>Never reaching <code>main</code> at all, with word 0 of flash looking wrong</strong>
+        &mdash; the image was linked or flashed at the wrong address, or the boot pins are selecting
+        something other than flash.</li>
+  </ul>
+  <p>
+    Reading the reset-cause flags at startup and logging them is five lines that pay for themselves
+    the first time a unit comes back from the field.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> Step 1 is on a PC; the rest want a board and a debugger, and each takes minutes.</p>
+  <pre><code>1. On a PC, see .data and .bss with your own eyes:
+
+     cat &gt; sec.c &lt;&lt;'EOF'
+     int  zero_init;              /* .bss   -- no flash cost */
+     int  value_init = 0x1234;    /* .data  -- flash AND ram  */
+     const int constant = 0x5678; /* .rodata -- flash only    */
+     int main(void) { return zero_init + value_init + constant; }
+     EOF
+     gcc -c sec.c -o sec.o &amp;&amp; size -A sec.o
+
+   Three variables, three different sections, three different costs.
+
+2. On a board, open the startup .s file for your part. It is about 100
+   lines and you can read all of it. Find the .data copy loop, the .bss
+   zero loop, the SystemInit call and the __libc_init_array call. That
+   is the whole of this chapter, in the file that is already in your
+   project.
+
+3. Set a breakpoint on Reset_Handler and single-step to main. Watch an
+   initialised global change from garbage to its value as the copy loop
+   runs past it. That moment makes .data concrete.
+
+4. Break it deliberately: misspell an IRQ handler name -- USART1_IRQHander
+   -- and watch the interrupt land in Default_Handler forever instead.
+   No compiler warning, no linker error. Once you have seen it, you will
+   recognise it in ten seconds rather than an hour.
+
+5. Add reset-cause logging at the top of main:
+
+     if (RCC-&gt;CSR &amp; RCC_CSR_IWDGRSTF) log("reset: watchdog");
+     if (RCC-&gt;CSR &amp; RCC_CSR_PORRSTF)  log("reset: power on");
+     RCC-&gt;CSR |= RCC_CSR_RMVF;   /* clear for next time */
+
+   Then let the watchdog fire on purpose and confirm it tells you.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>The core loads the initial stack pointer from word 0 and the reset vector from word 1.</strong> The hardware sets SP, which is why C runs immediately.</li>
+    <li><strong>Boot pins select what is aliased at address 0</strong>, and <code>VTOR</code> relocates the table later &mdash; the mechanism a bootloader uses.</li>
+    <li><strong>Handler names come from the startup file's weak symbols.</strong> Misspell one and yours is never called, with no warning.</li>
+    <li><strong><code>.data</code> is copied from flash to RAM; <code>.bss</code> is zeroed.</strong> That is where the guarantee about globals comes from, and it does not extend to locals.</li>
+    <li><strong><code>SystemInit</code> sets flash wait states before raising the clock</strong>, and must touch only registers and locals, never initialised globals.</li>
+    <li><strong><code>__libc_init_array</code> runs C++ static constructors</strong>, whose cross-file order is unspecified.</li>
+    <li><strong><code>main</code> is an ordinary function</strong> and must not return, which is why firmware ends in an infinite loop.</li>
+    <li><strong>When a board seems dead, find the program counter</strong>: Default_Handler, HardFault, a watchdog reset loop, or never reaching main at all.</li>
+    <li><strong>Log the reset cause from RCC at startup.</strong> Five lines that pay for themselves on the first field return.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Una scheda non parte. Da dove comincia?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Attacco il debugger e guardo dov&rsquo;&egrave; davvero il program counter, invece di
+    leggere il codice. I casi sono pochi: se sono dentro <code>Default_Handler</code> &egrave; scattato
+    un interrupt per cui non ho scritto l&rsquo;handler &mdash; e il caso classico &egrave; il nome
+    sbagliato, perch&eacute; i vettori sono simboli weak nello startup e se scrivo
+    <code>USART1_IRQHander</code> non me lo dice nessuno, n&eacute; il compilatore n&eacute; il
+    linker. Se sono in <code>HardFault_Handler</code> leggo i registri di stato del fault invece di
+    indovinare. Se torno ciclicamente al reset vector di solito &egrave; il watchdog che mi resetta
+    prima che finisca l&rsquo;inizializzazione, e lo verifico dai flag di causa reset in RCC, che
+    sopravvivono al reset. E se non arrivo proprio a <code>main</code>, guardo le prime due parole in
+    flash: la prima &egrave; lo stack pointer iniziale e la seconda il reset vector, e se sono
+    sbagliate l&rsquo;immagine &egrave; linkata o programmata all&rsquo;indirizzo sbagliato, oppure i
+    boot pin stanno selezionando qualcos&rsquo;altro. In generale metto sempre il log della causa di
+    reset all&rsquo;inizio di <code>main</code>: sono cinque righe e si ripagano la prima volta che
+    torna indietro un&rsquo;unit&agrave; dal campo.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

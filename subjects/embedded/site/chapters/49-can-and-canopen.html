@@ -18,25 +18,226 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 7 — Serial protocols <span>&rsaquo;</span> Chapter 49</p>
+<p class="crumbs">Part 7 &mdash; Serial protocols <span>&rsaquo;</span> Chapter 49</p>
 <h1>CAN and CANopen</h1>
-<p class="lede">A bus with no master, arbitration by identifier, and hardware error handling. Then CANopen: the object dictionary, PDO, SDO and NMT.</p>
+<p class="lede">
+  A bus with no master, where priority is decided by the message identifier and collisions are
+  resolved without losing a single bit. Then CANopen on top of it: the object dictionary, PDO, SDO
+  and NMT &mdash; four acronyms that describe how an industrial device is expected to behave.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> Named across regional machinery and vehicle listings. LogiFlow 32d introduces the frame from the PC side; here you configure the controller.</p>
+  <p>
+    <strong>Not named in this advert</strong>, but CAN and CANopen appear across the Modena
+    machinery, vehicle and motion listings collected alongside it, and they are the usual answer when
+    a machine has intelligent actuators rather than dumb ones. LogiFlow chapter 32d introduces the
+    frame from the PC side; here you configure the controller.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="arbitration">Arbitration: the idea that makes CAN different</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    On most buses, if two devices talk at once the message is ruined and both have to try again.
+  </p>
+  <p>
+    CAN is built so that cannot happen. Every message starts with a number, its identifier. As the
+    devices send that number bit by bit, each one also listens. A zero on the wire always wins over a
+    one &mdash; so a device that sent a one and hears a zero knows somebody more important is talking,
+    and stops immediately.
+  </p>
+  <p>
+    The important part: the winner does not notice anything, and its message is not delayed or
+    repeated. The loser simply tries again afterwards. No time is wasted at all.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    A differential pair, like <a href="45-the-physical-layer.html">RS-485</a>, with 120 &Omega;
+    termination at both ends &mdash; but the two bus states are asymmetric. <strong>Dominant</strong>
+    (logical 0) actively drives the pair apart; <strong>recessive</strong> (logical 1) lets it relax.
+    So a dominant bit always overwrites a recessive one, and the bus is a wired-AND.
+  </p>
+  <p>
+    Arbitration follows directly: every transmitter monitors the bus while sending the identifier,
+    and a node that transmits recessive but reads dominant has lost and withdraws immediately. This
+    is <strong>non-destructive</strong> &mdash; the highest-priority message continues undisturbed and
+    arrives with no retransmission and no delay. A <em>lower</em> numeric identifier is higher
+    priority, and identifier assignment is therefore a real-time design decision, not an
+    administrative one.
+  </p>
+  <p>
+    Frames are small and message-oriented rather than address-oriented: an 11-bit identifier
+    (standard) or 29-bit (extended), 0 to 8 data bytes, CRC, and an ACK slot in which
+    <em>every</em> receiving node asserts a dominant bit. Nobody is addressed; nodes filter on
+    identifier and take what concerns them. CAN FD extends the payload to 64 bytes and allows a
+    faster bit rate during the data phase.
+  </p>
+  <p>
+    The feature that matters most in practice is <strong>hardware error handling</strong>. Every
+    controller keeps a transmit and a receive error counter. Errors increase them, successful frames
+    decrease them, and at 128 a node goes <strong>error passive</strong>; at 256 it goes
+    <strong>bus off</strong> and stops transmitting entirely until it is recovered. That is a
+    deliberate design: a node with a fault removes itself from the bus rather than jamming it. Read
+    those counters and expose them &mdash; they are the best diagnostic any field bus gives you, and
+    a rising TEC points at wiring or termination long before anything stops working.
+  </p>
+  <p>
+    <strong>Bit timing</strong> is the configuration people get wrong: the bit is divided into
+    segments and the <em>sample point</em> is placed at roughly 75&ndash;87.5&nbsp;% of the way
+    through. Every node on the bus must agree on bit rate and, in practice, have a compatible sample
+    point. A mismatched sample point gives a bus that works on the bench and errors on a long cable,
+    because propagation delay is what the segment placement is compensating for.
+  </p>
+</div>
+
+<h2 id="canopen">CANopen: what the bytes mean</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    CAN moves eight bytes and says nothing about what they mean. CANopen is the agreement on top: a
+    standard catalogue of numbered settings and values that every device has, and standard ways to
+    read them, write them, and start or stop the device.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The central concept is the <strong>object dictionary</strong>: every parameter and process value
+    a device has, addressed by a 16-bit index and an 8-bit sub-index. Standard ranges are fixed by
+    the specification &mdash; 0x1000&ndash;0x1FFF is communication parameters, 0x6000&ndash;0x9FFF is
+    the device profile &mdash; so a drive from one maker looks much like a drive from another. The
+    device ships with an <strong>EDS</strong> file describing its dictionary, which configuration
+    tools read.
+  </p>
+  <p>
+    Four mechanisms sit on top, and being able to say which is which is the useful knowledge:
+  </p>
+  <ul>
+    <li><strong>PDO</strong> &mdash; Process Data Object. Real-time process values, up to 8 bytes, no
+        protocol overhead and no confirmation, sent cyclically or on change. This is where a motor
+        position or a temperature travels. Which dictionary entries a PDO carries is configured by
+        <em>mapping</em>, which is itself done over SDO.</li>
+    <li><strong>SDO</strong> &mdash; Service Data Object. Confirmed read/write access to any
+        dictionary entry, with a request and a response, able to transfer objects larger than 8
+        bytes by segmenting. Used for configuration, not for a control loop.</li>
+    <li><strong>NMT</strong> &mdash; Network Management. The state machine every node has:
+        Initialising, Pre-operational, Operational, Stopped. PDOs flow only in Operational, which is
+        the answer to the commonest CANopen complaint, namely that a device is on the bus and sends
+        nothing.</li>
+    <li><strong>Heartbeat</strong> (and the older node guarding). Each node periodically announces
+        its NMT state, and the absence of a heartbeat is how the master detects a missing device
+        &mdash; the same reasoning as the heartbeat counter in
+        <a href="58-talking-to-the-plc.html">chapter 58</a>, standardised.</li>
+  </ul>
+  <p>
+    There is also <strong>SYNC</strong>, a broadcast that makes nodes sample inputs or apply outputs
+    simultaneously, and <strong>EMCY</strong>, a high-priority emergency message carrying an error
+    code. Node IDs run 1&ndash;127 and the default identifiers are derived from them, which is why
+    two devices left at the factory default node ID conflict immediately.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>can, bus, arbitration, identifier, priority, dominant, recessive, bit, stuffing, ack</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>A single node with the wrong bit rate takes down the entire bus, and the symptom points
+    everywhere except at it.</strong>
+  </p>
+  <p>
+    A node configured at 125 kbit/s on a 250 kbit/s bus does not simply fail to understand traffic.
+    It misreads valid frames as malformed and transmits error frames &mdash; which, being dominant
+    bits, actively destroy everyone else's messages. Every node's error counters rise, several go
+    bus-off, and the bus appears entirely broken. The node that is wrong is frequently the one that
+    looks healthiest.
+  </p>
+  <p>
+    Two habits. First, when a CAN bus misbehaves, read every node's TEC and REC before touching
+    anything: the counters tell you far more than the traffic does. Second, on a bench, bring nodes
+    up one at a time. It takes ten minutes and converts an unbounded search into a bounded one.
+  </p>
+  <p>
+    The same asymmetry catches people testing with two nodes: a lone transmitter with nothing else on
+    the bus will go error-passive and then bus-off, because <strong>nobody is acknowledging</strong>
+    &mdash; the ACK slot needs at least one other listening node. A CAN node cannot successfully talk
+    to itself, and &ldquo;my board transmits and immediately goes bus-off&rdquo; is almost always
+    this, not a fault.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> Two USB-CAN adapters are about thirty euro the pair, and CAN is much easier to
+  learn with real traffic than from a diagram.</p>
+  <pre><code>1. Two nodes, twisted pair, 120 ohm at each end. On Linux, SocketCAN
+   gives you the tools for free:
+
+     ip link set can0 up type can bitrate 250000
+     candump can0
+     cansend can0 123#DEADBEEF
+
+2. Watch arbitration happen. Have both nodes transmit continuously,
+   one with identifier 0x100 and one with 0x101, and look at the order
+   on the analyser. The lower identifier wins every contested slot, and
+   -- the part worth internalising -- it is never delayed or repeated.
+
+3. Set ONE node to the wrong bit rate and watch the whole bus collapse.
+   Then read both nodes' error counters and see which one is actually
+   at fault. Do this once; it is the failure you will meet in the field.
+
+4. Disconnect one node so only a transmitter remains. Watch the error
+   counter climb and the node go bus-off, because nothing is filling
+   the ACK slot. Knowing this stops you debugging a non-problem.
+
+5. For CANopen: CANopenNode is an open-source stack you can read and
+   run. Bring a node to Operational with an NMT start message and watch
+   the PDOs begin -- then set it back to Pre-operational and watch them
+   stop. That transition is the answer to most "it sends nothing"
+   reports.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Dominant beats recessive</strong>, so the bus is a wired-AND and arbitration is non-destructive.</li>
+    <li><strong>The winner is never delayed or retransmitted</strong>, and a lower identifier is higher priority &mdash; so identifier assignment is a real-time design decision.</li>
+    <li><strong>Nodes are not addressed.</strong> Frames carry an identifier and receivers filter on it.</li>
+    <li><strong>Error counters, error-passive at 128 and bus-off at 256</strong>, are the best diagnostic any field bus offers. Expose them.</li>
+    <li><strong>A faulty node removes itself</strong> rather than jamming the bus. That is deliberate.</li>
+    <li><strong>Every node must agree on bit rate and sample point</strong>, and a sample-point mismatch works on the bench and fails on a long cable.</li>
+    <li><strong>One node at the wrong bit rate destroys the whole bus</strong>, and the counters find it faster than the traffic does.</li>
+    <li><strong>A lone transmitter goes bus-off</strong> because nobody fills the ACK slot.</li>
+    <li><strong>CANopen adds an object dictionary</strong>: PDO for process data, SDO for configuration, NMT for state, heartbeat for liveness.</li>
+    <li><strong>PDOs only flow in the Operational state</strong>, which explains most &ldquo;it sends nothing&rdquo; reports.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Ha lavorato con CAN? Mi spieghi come funziona l&rsquo;arbitraggio.&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;CAN non ha un master: tutti possono parlare, e il conflitto si risolve bit a bit
+    sull&rsquo;identificatore. Il bus &egrave; un AND cablato &mdash; lo stato dominante, lo zero,
+    sovrascrive il recessivo &mdash; e ogni trasmettitore rilegge quello che manda: se manda un uno e
+    legge uno zero ha perso e si ritira subito. La cosa elegante &egrave; che non &egrave;
+    distruttivo: chi vince non si accorge di niente, il suo messaggio arriva senza ritardo e senza
+    ritrasmissione, e chi ha perso riprova dopo. Quindi l&rsquo;identificatore pi&ugrave; basso ha
+    priorit&agrave; pi&ugrave; alta, e assegnare gli ID &egrave; una scelta di progetto real-time,
+    non una convenzione. La cosa che uso di pi&ugrave; in diagnostica sono i contatori di errore: a
+    128 il nodo va error passive, a 256 va bus off e si stacca da solo invece di disturbare. Se un
+    bus CAN fa i capricci, la prima cosa che guardo sono i contatori di tutti i nodi, perch&eacute;
+    un solo nodo con il bit rate sbagliato manda error frame e distrugge i messaggi di tutti gli
+    altri &mdash; e sembra guasto tutto tranne lui. Su CANopen la cosa pratica da sapere &egrave; che
+    i PDO viaggiano solo nello stato Operational: met&agrave; dei &lsquo;il dispositivo non manda
+    niente&rsquo; sono un NMT start mai inviato.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

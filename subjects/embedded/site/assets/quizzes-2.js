@@ -165,4 +165,148 @@ window.QUIZZES = Object.assign(window.QUIZZES || {}, {
       why: "It is one instance of the general rule that stopping a core changes the behaviour you were trying to observe." },
   ],
 
+  /* -------------------------------------------------- 23-memory-mapped-io --- */
+  "23-memory-mapped-io": [
+    { q: "What is a peripheral register, physically?",
+      a: ["A special CPU register reserved for input and output", "A fixed address inside the peripheral region, wired to logic rather than to memory cells, accessed with ordinary load and store instructions", "A memory location the DMA controller owns", "A cache line reserved by the bus matrix"],
+      c: 1,
+      why: "There is no special I/O instruction on ARM, unlike x86. The instruction is the same one you use for a variable; only the effect differs." },
+
+    { q: "How does the CMSIS peripheral struct overlay work?",
+      a: ["The compiler generates accessor functions for each register", "The struct member offsets are laid out to match the hardware register offsets exactly, and a pointer to the struct is defined at the peripheral base address", "The linker places the struct at the peripheral address at build time", "The MPU maps the struct onto the peripheral region at runtime"],
+      c: 1,
+      why: "So a member access compiles to a single store to a fixed address. Matching every member against the reference manual's register map table once makes the headers stop being magic." },
+
+    { q: "What do the CMSIS qualifiers for a read-write and a read-only register expand to?",
+      a: ["inline and static respectively", "volatile and volatile const respectively", "register and const respectively", "extern and static respectively"],
+      c: 1,
+      why: "This is why a poll loop on a status register works without you writing volatile yourself, and volatile const is exactly the read-only status register." },
+
+    { q: "Why can inserting a debug read of a status register make a bug disappear?",
+      a: ["The read slows the code down enough to avoid a race", "Many status flags are clear-on-read, so the read consumed the event your code was waiting for", "The read forces a cache flush", "The compiler reorders the surrounding code"],
+      c: 1,
+      why: "It also makes stepping in a debugger misleading, because some debuggers read peripheral views automatically." },
+
+    { q: "Why is clearing a bit by ANDing with its complement wrong for a write-one-to-clear register?",
+      a: ["It is too slow on a 32-bit bus", "It writes zero to the bit you meant, which does nothing, and writes one back to every other currently-set flag, clearing events you never saw", "It is not atomic with respect to interrupts", "It fails only on read-only registers"],
+      c: 1,
+      why: "For a write-one-to-clear register, write a plain mask containing only the bit you intend." },
+
+    { q: "Why does the GPIO set-reset register exist when the output data register can already set and clear pins?",
+      a: ["It is faster to decode", "It gives an atomic set or clear in one store, with no read-modify-write to race with an interrupt touching another pin on the same port", "It can address more pins", "The output data register is read-only on newer parts"],
+      c: 1,
+      why: "Writing bit n sets pin n and writing bit n plus 16 clears it. Using exclusive-or on the output data register is the read-modify-write bug in its most common disguise." },
+
+    { q: "You write a peripheral register, read it back, and it is still zero. What is the most likely cause?",
+      a: ["The register is write-only", "The peripheral's clock enable bit has not been set, so the registers do not exist: writes vanish and reads return zero with no fault", "The MPU is blocking the access", "The address is misaligned"],
+      c: 1,
+      why: "It is the most common single hour lost by somebody new to the part, and it is invisible because the code itself is correct." },
+
+    { q: "Why do generated STM32 projects read the clock-enable register back immediately after setting an enable bit?",
+      a: ["To confirm the write succeeded for error handling", "Because the write travels through a bus bridge and on several families an immediate access to the freshly-enabled peripheral can be lost, which is documented in the errata", "To flush the data cache", "Because the compiler would otherwise remove the write"],
+      c: 1,
+      why: "It is not superstition, and it is a good reason to read what CubeMX generates rather than skipping past it." },
+  ],
+
+  /* --------------------------------------------------- 24-startup-to-main --- */
+  "24-startup-to-main": [
+    { q: "What does a Cortex-M core read from the first two words of the vector table on reset?",
+      a: ["A magic number and a checksum", "The initial Main Stack Pointer and the address of the reset handler", "The address of main and the size of the image", "The clock configuration and the flash wait states"],
+      c: 1,
+      why: "The hardware loading the stack pointer is unusual, and it is why C code can run immediately without a software bootstrap setting the stack pointer first." },
+
+    { q: "Why are interrupt handlers on STM32 called by exact names such as USART1_IRQHandler?",
+      a: ["The compiler recognises the naming convention", "The startup file defines the vector table with those symbols, each declared weak and aliased to an infinite loop, so a function you define with the right name replaces it at link time", "CubeMX registers them at runtime", "The NVIC looks up handlers by name"],
+      c: 1,
+      why: "Misspell it and your handler is never called, with no compiler warning and no linker error, while the interrupt lands in the default handler forever." },
+
+    { q: "Why does an initialised global cost both flash and RAM while a const one costs only flash?",
+      a: ["The compiler duplicates const data for speed", "The initialised global's value is stored in flash and copied into SRAM by the startup code, whereas const data stays in flash and is read from there", "Const data is compressed", "Initialised globals are allocated twice in RAM"],
+      c: 1,
+      why: "That copy loop, from the load address to the virtual address, is step one of the reset handler." },
+
+    { q: "Where does the C guarantee that globals start at zero actually come from?",
+      a: ["The compiler emits initialisation code at the top of main", "The startup code writes zeros across the bss section before main runs", "The hardware clears SRAM on reset", "The linker stores zeros in flash for those variables"],
+      c: 1,
+      why: "It is also why the guarantee does not extend to local variables, which nobody zeroes." },
+
+    { q: "Why must the clock setup routine configure flash wait states before raising the main clock?",
+      a: ["To reduce power consumption during the transition", "Because running the core faster than the flash can supply instructions without added wait states reads garbage from flash", "Because the PLL cannot lock otherwise", "Because the clock security system requires it"],
+      c: 1,
+      why: "Ordering matters here in a way that is easy to get wrong when hand-writing clock setup." },
+
+    { q: "What does the libc init array call do, and why does it matter in C++?",
+      a: ["It zeroes the heap, which matters for new", "It runs the constructors of file-scope C++ objects, which is why static C++ objects work at all and why their order across translation units is unspecified", "It registers exception handlers", "It initialises the standard library's locale tables"],
+      c: 1,
+      why: "That unspecified cross-file ordering is the static initialisation order problem." },
+
+    { q: "Why do firmware main functions end in an infinite loop rather than returning?",
+      a: ["The compiler requires it", "main is an ordinary function and nothing in the hardware knows its name, so if it returns control falls into whatever the startup file does next", "Returning triggers a HardFault", "The linker removes code after a return"],
+      c: 1,
+      why: "There is no operating system to return to." },
+
+    { q: "A board resets repeatedly, returning to the reset vector. What is the most likely cause and how do you confirm it?",
+      a: ["A stack overflow; check the stack watermark", "The watchdog is resetting before initialisation completes; check the reset-cause flags, which survive the reset", "A HardFault; read the fault status registers", "Brown-out; measure the supply rail"],
+      c: 1,
+      why: "Logging the reset cause at the top of main is five lines that pay for themselves on the first field return." },
+
+    { q: "What is the safe rule about what the early clock setup routine may touch?",
+      a: ["It may use any global, since it runs first", "Only hardware registers and local variables, never initialised globals, because whether the data section has been copied yet varies between startup files", "Only const data", "Only variables declared volatile"],
+      c: 1,
+      why: "Check your startup file's actual ordering before assuming either way." },
+  ],
+
+  /* ------------------------------------------------------------------ 27-dma --- */
+  "27-dma": [
+    { q: "What is a DMA controller, in terms of the bus?",
+      a: ["A coprocessor that executes copy instructions on behalf of the CPU", "A second bus master that arbitrates alongside the core, so a transfer steals bus cycles but costs no instructions and no interrupt per byte", "A cache that prefetches peripheral data", "A dedicated memory region for peripheral buffers"],
+      c: 1,
+      why: "The distinction matters: it is not free, but what it saves is CPU time and interrupt overhead rather than bus bandwidth." },
+
+    { q: "What does circular DMA mode do, and what is it for?",
+      a: ["It retries failed transfers automatically", "On reaching the end of the buffer it wraps to the start and continues forever, which is what makes a receive ring buffer work with no CPU involvement", "It alternates between two peripherals", "It reverses the transfer direction at the end"],
+      c: 1,
+      why: "Combined with the UART idle-line interrupt it gives one interrupt per message rather than one per byte." },
+
+    { q: "Why is the DMA half-transfer interrupt useful in circular mode?",
+      a: ["It reports transfer errors early", "It lets you process the first half of the buffer while the controller is still filling the second, which is a double buffer using one buffer", "It halves the interrupt rate", "It signals that the peripheral clock has stabilised"],
+      c: 1,
+      why: "It is the standard idiom for continuous ADC sampling and audio, and forgetting it means the first half is overwritten while you are still reading it, at high rates only." },
+
+    { q: "How do you determine how many bytes a DMA transfer has received so far?",
+      a: ["Read a transferred-count register that counts up", "Subtract the remaining-count register, which counts down, from the buffer size", "Poll the peripheral's data register", "Compare the buffer against a known pattern"],
+      c: 1,
+      why: "That is precisely how the Modbus idle-line technique measures a variable-length frame." },
+
+    { q: "Why must a DMA buffer never be a local array in a function that returns?",
+      a: ["Local arrays are not aligned correctly", "The controller keeps writing into stack memory that other code is now using, which is a use-after-free with hardware doing the writing", "The compiler places locals in a section DMA cannot reach", "Local arrays cannot be declared volatile"],
+      c: 1,
+      why: "DMA buffers are static or file-scope, always." },
+
+    { q: "Why can a DMA transfer silently fail on an STM32F4 or H7 depending on where the buffer is placed?",
+      a: ["Because the buffer crosses a flash boundary", "Because some memories are unreachable by the DMA controller: the core-coupled RAM on F4, and the tightly-coupled data RAM for the main controllers on H7", "Because SRAM is write-protected by default", "Because the MPU blocks peripheral access by default"],
+      c: 1,
+      why: "It is a linker-script question, and it is the second most common DMA failure after buffer lifetime." },
+
+    { q: "On a Cortex-M7 with the data cache enabled, what must you do around a DMA receive and a DMA transmit?",
+      a: ["Nothing; the cache is coherent with DMA", "Invalidate the cache range after a receive completes and before reading, and clean it before starting a transmit", "Clean after receive and invalidate before transmit", "Disable interrupts around both"],
+      c: 1,
+      why: "The cache sits between the core and the bus while DMA sits on the bus, so on receive the core reads a stale line and on transmit DMA reads SRAM while the data is still in cache." },
+
+    { q: "Why must a buffer subject to cache maintenance be 32-byte aligned and a multiple of 32 bytes?",
+      a: ["Because DMA requires 32-byte transfers", "Because the clean and invalidate operations work on whole cache lines, so a partially covered line would corrupt a neighbouring variable", "Because the MPU regions have that granularity", "Because the bus matrix transfers in 32-byte bursts"],
+      c: 1,
+      why: "An MPU region marking the DMA buffers non-cacheable avoids the whole class of problem and is usually the better choice." },
+
+    { q: "What is the characteristic symptom of a DMA cache-coherency bug?",
+      a: ["An immediate HardFault on the first transfer", "It works in debug, works with small buffers, works most of the time, and corrupts occasionally under load", "The DMA transfer-error flag is set every time", "The peripheral stops generating requests"],
+      c: 1,
+      why: "That signature is the worst kind, because every quick test passes and the failure only appears in the field." },
+
+    { q: "Why does a DMA request sometimes fail to trigger at all on an STM32F4-class part?",
+      a: ["The peripheral clock is disabled", "Each peripheral can only reach certain channels or streams, fixed by a table in the reference manual, and a newer family's request multiplexer removes the restriction", "The DMA controller must be reset before each transfer", "The transfer width must match the bus width"],
+      c: 1,
+      why: "It is a common source of a DMA that never triggers on older families, and a non-problem on parts with a request multiplexer." },
+  ],
+
 });

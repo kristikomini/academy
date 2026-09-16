@@ -18,25 +18,228 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 4 — The microcontroller itself <span>&rsaquo;</span> Chapter 23</p>
+<p class="crumbs">Part 4 &mdash; The microcontroller itself <span>&rsaquo;</span> Chapter 23</p>
 <h1>Memory-mapped I/O and the peripheral register</h1>
-<p class="lede">A pin is an address. What that means for volatile, for pointers, and for the moment you write a register and nothing happens.</p>
+<p class="lede">
+  A pin is an address. That one sentence is the idea the entire field is built on &mdash; it is where
+  the pointers of Part 2 meet actual copper, and it is why <code>volatile</code> exists.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> Where Part 1 and Part 2 collide with hardware, and the single idea the whole field is built on.</p>
+  <p>
+    <strong>Not named in this advert</strong>, because it is below the level any advert describes.
+    Every line about STM32, peripherals, protocols or debugging assumes it, and a candidate who
+    cannot explain what <code>GPIOA-&gt;ODR</code> actually <em>is</em> has not yet started.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="the-idea">A pin is an address</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    On a PC, to draw on the screen you ask the operating system. On a microcontroller there is no
+    operating system to ask. Instead, the hardware designers wired the peripherals so that they
+    respond to <em>ordinary memory addresses</em>.
+  </p>
+  <p>
+    So turning on an LED is writing a number to a particular address. There is no function call to
+    the hardware, no driver in between. You write to address 0x40020014 and a pin goes high, because
+    somebody built a wire that does that.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The address space of a Cortex-M is 4 GB and mostly empty. The architecture fixes what lives
+    where, which is why the map is the same shape on every vendor's part:
+  </p>
+  <pre><code>0x0000_0000  code      (flash, usually aliased here too)
+0x2000_0000  SRAM
+0x4000_0000  peripherals   &lt;- GPIO, UART, timers, ADC, DMA...
+0x6000_0000  external RAM / devices
+0xE000_0000  private peripheral bus (NVIC, SysTick, DWT, MPU)</code></pre>
+  <p>
+    A <strong>peripheral register</strong> is a fixed address inside that peripheral region, wired to
+    logic rather than to memory cells. The load and store instructions are the same ones you use for
+    a variable &mdash; there is no special I/O instruction on ARM, unlike x86 &mdash; but the effect
+    is not.
+  </p>
+  <p>
+    The CMSIS headers express this as a <strong>struct overlay</strong>, and understanding that
+    idiom is most of the chapter:
+  </p>
+  <pre><code>typedef struct {
+    __IO uint32_t MODER;    /* offset 0x00 -- pin mode          */
+    __IO uint32_t OTYPER;   /* offset 0x04 -- push-pull / open-drain */
+    __IO uint32_t OSPEEDR;  /* offset 0x08 */
+    __IO uint32_t PUPDR;    /* offset 0x0C */
+    __I  uint32_t IDR;      /* offset 0x10 -- input data, READ ONLY  */
+    __IO uint32_t ODR;      /* offset 0x14 -- output data */
+    __O  uint32_t BSRR;     /* offset 0x18 -- set/reset, WRITE ONLY  */
+} GPIO_TypeDef;
+
+#define GPIOA ((GPIO_TypeDef *) 0x40020000UL)</code></pre>
+  <p>
+    The struct's member offsets are laid out to match the hardware's register offsets exactly, so
+    <code>GPIOA-&gt;ODR</code> compiles to a single store to 0x40020014. Note <code>__IO</code>,
+    <code>__I</code> and <code>__O</code>: they expand to <code>volatile</code>,
+    <code>volatile const</code> and <code>volatile</code> respectively, which is why
+    <a href="06-const-and-volatile.html">chapter 06</a>'s poll loop works without you writing the
+    keyword, and <code>volatile const</code> is exactly the read-only status register that chapter
+    describes.
+  </p>
+</div>
+
+<h2 id="not-memory">Why it is not memory, in four ways</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    It looks like a variable and it does not behave like one. Reading it twice can give two different
+    answers. Reading it can change it. Writing a one can mean &ldquo;clear this&rdquo;. And some of
+    it cannot be read at all.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    <strong>1. It changes without you.</strong> A status bit is set by hardware. This is the whole of
+    <code>volatile</code>, and it is why the optimiser must not cache a read
+    (<a href="06-const-and-volatile.html">chapter 06</a>).
+  </p>
+  <p>
+    <strong>2. Reading can have side effects.</strong> Many status flags are <em>clear on read</em>,
+    and on several STM32 UARTs reading the data register clears the receive-not-empty flag. So
+    inserting a debug read of a status register can make a bug disappear &mdash; the read consumed
+    the event. This also makes stepping in a debugger misleading, because some debuggers read
+    peripheral views automatically (<a href="60-the-debugger.html">chapter 60</a>).
+  </p>
+  <p>
+    <strong>3. Writing does not always store.</strong> Many flags are cleared by writing
+    <em>one</em> to them, not zero &mdash; &ldquo;write 1 to clear&rdquo; &mdash; so the natural
+    <code>REG &amp;= ~FLAG</code> is wrong twice over: it writes zero to the bit you meant, and it
+    writes <em>one</em> back to every other currently-set flag, clearing events you never saw. For a
+    W1C register, always write a plain mask with only the bit you intend:
+    <code>REG = FLAG;</code>
+  </p>
+  <p>
+    <strong>4. Some registers are write-only, and some cannot be read back meaningfully.</strong>
+    <code>BSRR</code> is the canonical example: writing bit <em>n</em> sets pin <em>n</em>, writing
+    bit <em>n</em>+16 clears it, and reading returns nothing useful. That design exists precisely to
+    give an <strong>atomic</strong> set or clear in one store &mdash; no read, no modify, no race with
+    an interrupt that touches another pin on the same port
+    (<a href="04-bits-and-registers.html">chapter 04</a>). Using <code>ODR ^= mask</code> instead is
+    the read-modify-write bug in its most common disguise.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>memory, mapped, io, mmio, peripheral, register, address, volatile, pointer, base</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>You write a peripheral register, read it back, and it is still zero. Nothing is broken:
+    the peripheral's clock is off.</strong>
+  </p>
+  <p>
+    Every peripheral on an STM32 has an enable bit in an RCC register, and they are off after reset
+    to save power. Until it is set, the peripheral is not merely idle &mdash; its registers do not
+    exist. Writes vanish, reads return zero, and there is no fault and no diagnostic. This is,
+    without much competition, the most common single hour lost by somebody new to the part, and it is
+    invisible because the code is correct.
+  </p>
+  <pre><code>RCC-&gt;AHB1ENR |= RCC_AHB1ENR_GPIOAEN;   /* FIRST. Always. */
+(void) RCC-&gt;AHB1ENR;                   /* read back: the write must land
+                                          before the next access -- there
+                                          are errata about exactly this */
+GPIOA-&gt;MODER |= (1u &lt;&lt; (5 * 2));       /* now this does something */</code></pre>
+  <p>
+    The read-back is not superstition. The write travels through a bus bridge, and on several
+    families an immediate access to the freshly-enabled peripheral can be lost &mdash; it is
+    documented in the errata sheet. CubeMX-generated code contains exactly this idiom, which is a
+    good reason to read what it generates rather than skipping past it
+    (<a href="30-cube-hal-ll-registers.html">chapter 30</a>).
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> Steps 1 and 2 run on a PC. Steps 3 and 4 want a board, and are the ones that
+  make it physical.</p>
+  <pre><code>1. On a PC, prove the struct-overlay idiom to yourself with plain memory:
+
+     #include &lt;stdio.h&gt;
+     #include &lt;stdint.h&gt;
+     typedef struct { volatile uint32_t A, B, C, D; } fake_t;
+     static uint32_t backing[4];
+     #define FAKE ((fake_t *)backing)
+     int main(void) {
+         FAKE-&gt;C = 0xAB;
+         printf("offset of C = %zu, backing[2] = 0x%X\n",
+                offsetof(fake_t, C), backing[2]);
+     }
+
+   offsetof(C) is 8 and backing[2] holds 0xAB. That is the entire
+   mechanism -- a struct laid over an address. On a real part the
+   address just happens to be wired to a pin.
+
+2. Now open your part's reference manual at the GPIO chapter and find
+   the register map table. Match every member of the CMSIS
+   GPIO_TypeDef to a row. Do this once and the headers stop being
+   magic.
+
+3. On a board: comment out the RCC clock-enable line and watch every
+   subsequent write silently do nothing. Read the register back and see
+   zero. Then put it back. Ten seconds, and it inoculates you.
+
+4. Toggle a pin two ways while watching it on a scope:
+
+     GPIOA-&gt;ODR  ^= (1u &lt;&lt; 5);            /* read-modify-write */
+     GPIOA-&gt;BSRR  = (1u &lt;&lt; 5);            /* atomic set */
+     GPIOA-&gt;BSRR  = (1u &lt;&lt; (5 + 16));     /* atomic clear */
+
+   Compare the instruction counts in the disassembly. Then have a timer
+   interrupt toggle a DIFFERENT pin on the same port in a tight loop,
+   and watch the ODR version occasionally lose one of the two writes.
+   That lost edge is the read-modify-write race, made visible.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>A peripheral register is an address wired to logic</strong>, accessed with the same load and store instructions as any variable.</li>
+    <li><strong>The CMSIS struct overlay matches member offsets to register offsets</strong>, so a member access is one store to a fixed address.</li>
+    <li><strong><code>__IO</code> is volatile and <code>__I</code> is volatile const</strong> &mdash; which is why the poll loop works without you writing the keyword.</li>
+    <li><strong>Reading a register can have side effects.</strong> A debug read can consume the event and make a bug vanish.</li>
+    <li><strong>Many flags are write-one-to-clear</strong>, so <code>REG &amp;= ~FLAG</code> is wrong twice: it misses the bit and clears unrelated pending events.</li>
+    <li><strong>BSRR sets and clears atomically in one store</strong>; <code>ODR ^= mask</code> is a read-modify-write and races with interrupts.</li>
+    <li><strong>Enable the peripheral clock first, or the registers do not exist.</strong> Writes vanish and reads return zero, with no fault.</li>
+    <li><strong>Read the enable register back before the first access</strong> &mdash; there are errata about exactly that.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Cosa succede esattamente quando scrive su un registro di periferica?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;&Egrave; una normale store a un indirizzo: su ARM non esistono istruzioni di I/O
+    separate, la periferica sta semplicemente nella mappa di memoria a partire da 0x40000000. Quello
+    che cambia &egrave; che dietro quell&rsquo;indirizzo non c&rsquo;&egrave; una cella di memoria ma
+    della logica, e quindi si comporta diversamente da una variabile: pu&ograve; cambiare da sola,
+    quindi serve <code>volatile</code> &mdash; nei CMSIS c&rsquo;&egrave; gi&agrave;, &egrave;
+    <code>__IO</code>; leggerla pu&ograve; avere effetti collaterali, tanto che aggiungere una
+    lettura di debug su un registro di stato a volte fa sparire il bug perch&eacute; quella lettura
+    ha consumato l&rsquo;evento; e molti flag si azzerano scrivendoci <em>uno</em>, quindi
+    <code>REG &amp;= ~FLAG</code> &egrave; sbagliato due volte, perch&eacute; non pulisce quello che
+    voglio e in pi&ugrave; riscrive uno su tutti gli altri flag attivi, cancellando eventi che non ho
+    mai visto. Per i GPIO uso BSRR invece di ODR, perch&eacute; setta e resetta in una sola store,
+    atomica, mentre <code>ODR ^=</code> &egrave; read-modify-write e va in conflitto con un interrupt
+    che tocca un altro pin della stessa porta. E la prima cosa che controllo quando una periferica
+    &lsquo;non risponde&rsquo;: il clock nel registro RCC. Se &egrave; spento i registri non
+    esistono proprio, le scritture svaniscono e le letture danno zero, senza nessun errore.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>
