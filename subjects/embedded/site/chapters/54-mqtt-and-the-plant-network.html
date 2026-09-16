@@ -18,25 +18,286 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 8 — Ethernet and the network <span>&rsaquo;</span> Chapter 54</p>
+<p class="crumbs">Part 8 &mdash; Ethernet and the network <span>&rsaquo;</span> Chapter 54</p>
 <h1>MQTT and the plant network</h1>
-<p class="lede">Publish, subscribe, QoS and last will. Telemetry off the machine, and the firewall conversation that comes with it.</p>
+<p class="lede">
+  A protocol designed for devices that are small, numerous and behind a firewall. Publish and
+  subscribe through a broker, three delivery guarantees, a will message that announces your death, and
+  the reason IT will accept it when they will not accept an open port on your machine.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> Increasingly common in regional listings once a product ships with Ethernet, and the protocol that gets a device onto a network IT will accept.</p>
+  <p>
+    <strong>Not in the anchor advert</strong>, and increasingly present in regional listings once a
+    product ships with Ethernet. It is the protocol that gets a machine's data onto a network an IT
+    department will approve, and it is the usual answer to <em>&ldquo;we want to see the machines from
+    the office&rdquo;</em> &mdash; a sentence every firmware engineer in this market eventually
+    hears.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="model">Publish, subscribe, broker</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    With <a href="53-modbus-tcp.html">Modbus</a>, somebody has to ask your device for each value, and
+    to ask they have to be able to reach it. MQTT turns that around: your device connects
+    <em>outwards</em> to a server called a broker, and posts its values there under names like
+    <code>plant1/chiller3/temp_in</code>. Anybody who wants those values subscribes to the name.
+  </p>
+  <p>
+    Nobody connects to your machine at all. That single change is why this protocol spread: it works
+    through firewalls, through mobile networks, and across the internet, without opening anything on
+    the factory side.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>Topics</strong> are hierarchical strings. Subscribers may wildcard a level with
+        <code>+</code> or everything below with <code>#</code>. Design the hierarchy early &mdash;
+        site, line, machine, then the measurement &mdash; because a topic structure is an interface
+        and changing it later breaks everybody's dashboards.</li>
+    <li><strong>Publishers and subscribers do not know each other</strong>, which is the real
+        architectural difference from Modbus: adding a second consumer of the data costs nothing on
+        the device.</li>
+    <li><strong>QoS 0, 1, 2</strong> &mdash; at most once, at least once, exactly once. <strong>QoS 1
+        is the right default</strong>: it costs one acknowledgement and it means duplicates are
+        possible, so make your messages idempotent and timestamped. QoS 2 is a four-step handshake
+        that is rarely worth its cost on a constrained device, and QoS 0 is for high-rate telemetry
+        where losing a sample is harmless.</li>
+    <li><strong>Retained messages</strong>: the broker keeps the last message on a topic and gives it
+        to any new subscriber immediately. That is how a dashboard opened at 3 a.m. shows the current
+        temperature instead of a blank until the next publish.</li>
+    <li><strong>The last will</strong> is the feature worth knowing by name in an interview: at connect
+        time the device tells the broker what to publish <em>if the connection drops
+        unexpectedly</em>. Set the will to <code>status = offline</code> retained, publish
+        <code>status = online</code> retained after connecting, and every consumer learns about a dead
+        machine within the keep-alive interval &mdash; without polling anything. It is the network
+        version of the <a href="58-talking-to-the-plc.html">heartbeat</a>.</li>
+    <li><strong>Keep-alive and clean session.</strong> The keep-alive interval sets how quickly a
+        vanished device is noticed; a persistent session means the broker holds subscriptions and
+        queued QoS 1 messages across a reconnect, which is usually what an intermittently connected
+        machine wants.</li>
+  </ul>
+  <p>
+    MQTT itself is tiny &mdash; a two-byte fixed header on the smallest packet &mdash; and embedded
+    client libraries such as the lwIP MQTT client, Paho embedded C or coreMQTT are a few kilobytes.
+    The expensive part is not MQTT; it is <strong>TLS</strong>, which the next section is about.
+  </p>
+</div>
+
+<h2 id="design">Designing what a machine publishes</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Publishing everything all the time floods the network and the database for no benefit. Publishing
+    too little means nobody can diagnose anything. The useful middle is: send values when they change
+    meaningfully, send everything occasionally anyway, and send events immediately.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>Report by exception, with a heartbeat.</strong> Publish a value when it moves more than
+        a deadband, and publish everything on a slow timer regardless &mdash; so a consumer that joined
+        late, or missed a message, converges within a known time. Pure change-of-value telemetry
+        leaves gaps nobody can explain later.</li>
+    <li><strong>Timestamp at the source</strong>, with a monotonic uptime at minimum and real time if
+        the device has it. Broker arrival time is not measurement time, and the difference matters
+        exactly when the network was slow, which is exactly when you are investigating.</li>
+    <li><strong>JSON or binary?</strong> JSON is readable, debuggable and interoperable, and costs
+        bytes and parsing; a compact binary or Sparkplug B encoding costs interoperability. For a
+        machine publishing a few dozen values a second, JSON is almost always the right trade, and
+        <em>being able to justify the choice</em> is what an interviewer is listening for.</li>
+    <li><strong>Separate telemetry from commands.</strong> If the device also subscribes to a command
+        topic, treat every arriving command as untrusted input: validate the value, check the machine
+        state permits it, and apply the same interlocks the local interface has. The broker is not an
+        authority.</li>
+    <li><strong>Bound everything.</strong> A queue of outgoing messages with a fixed size that drops
+            and counts when full, a publish rate limit, and no allocation per message
+        (<a href="52-tcp-ip-in-64kb.html">chapter 52</a>).</li>
+  </ul>
+  <p>
+    And the rule this course keeps repeating, because it is the one that separates an industrial
+    device from a hobby project: <strong>telemetry must never be able to disturb control</strong>. If
+    the broker is unreachable, the machine keeps running; if the publish queue is full, values are
+    dropped rather than the control loop delayed; and nothing in the control path ever blocks on a
+    socket.
+  </p>
+</div>
+
+<h2 id="security">Security, and the conversation with IT</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Because MQTT can reach across the internet, it has to be secured properly &mdash; encrypted, and
+    with the device proving who it is. On a small chip that costs real memory and real time, and it has
+    to be planned rather than added at the end.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>TLS is the real cost.</strong> mbedTLS on a Cortex-M costs tens of kilobytes of flash
+        and a large chunk of RAM per connection, plus a handshake that takes hundreds of milliseconds
+        to seconds. It changes part selection
+        (<a href="29-the-stm32-family.html">chapter 29</a>), it wants hardware acceleration if the
+        part has it, and it needs a real entropy source &mdash; a weak random number generator is a
+        broken TLS, silently.</li>
+    <li><strong>Certificates need time.</strong> Validating a server certificate requires the device to
+        know the date, so a product without an RTC or NTP either cannot validate expiry or must be
+        designed around it. This surprises people late in a project.</li>
+    <li><strong>Credentials must be per device</strong> and provisioned somewhere sensible &mdash; not
+        a shared username and password compiled into the firmware, which is a single point of
+        compromise for an entire fleet and is exactly what regulators now ask about.</li>
+    <li><strong>Direction matters.</strong> The device dials out, so the factory firewall needs one
+        outbound rule and nothing inbound. That is a conversation IT will say yes to, and it is why
+        this protocol succeeds where &ldquo;please open port 502 to our machine&rdquo; fails.</li>
+  </ul>
+  <p>
+    The architecture most industrial products converge on, and a good thing to be able to draw:
+    <strong>Modbus TCP or a field bus inward, on the closed machine network, for control; MQTT outward
+    over TLS, initiated by the device, for telemetry and remote support.</strong> Control stays local
+    and deterministic; observation goes anywhere. In Europe the Cyber Resilience Act is making the
+    secure half of that a documented obligation rather than a preference, which is worth knowing
+    exists even as a junior.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>mqtt, broker, publish, subscribe, topic, wildcard, qos, 0, 1, 2</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>The reconnect logic is written last, is never tested, and is what actually decides whether
+    the product works.</strong>
+  </p>
+  <p>
+    A connected device is the easy case and the one everybody builds. In the field the connection
+    drops constantly: a switch reboots, the site's internet fails for an hour, the broker restarts,
+    a firewall drops idle connections overnight. The failure modes that follow are all predictable and
+    all skipped:
+  </p>
+  <ul>
+    <li><strong>A tight reconnect loop</strong> that hammers the broker every second and, multiplied by
+        two hundred machines after a site-wide outage, keeps the broker down. The fix is
+        <strong>exponential backoff with jitter</strong> &mdash; and the jitter is not optional,
+        because without it every device retries in lockstep.</li>
+    <li><strong>Unbounded buffering</strong> while offline. An hour of disconnection at one message per
+        second is 3600 messages, and a queue that grows until memory runs out turns a network problem
+        into a device crash. Decide what to keep: latest values only, or a bounded ring of recent
+        history, and drop the rest with a counter.</li>
+    <li><strong>A blocked control loop.</strong> If publishing is synchronous and the socket is full,
+        the machine stops. This is the one that hurts someone.</li>
+    <li><strong>No visible state.</strong> The device must be able to say locally &mdash; on a display,
+        an LED or over <a href="50-modbus-rtu.html">Modbus</a> &mdash; whether it is connected, when it
+        last succeeded, and how many messages it has dropped. Otherwise every remote-monitoring
+        complaint is unfalsifiable.</li>
+  </ul>
+  <p>
+    Test it by breaking it: pull the cable for an hour, restart the broker mid-publish, block the port
+    with a firewall rule, and let a hundred simulated devices reconnect at once. That afternoon is
+    worth more than any amount of work on the happy path, and it is the same lesson as the power-cut
+    test in <a href="34-flash-and-bootloader.html">chapter 34</a> &mdash; the mechanism exists for the
+    failure, so test the failure.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> All of it works on a PC before it needs a board; a broker on your laptop
+  costs one command.</p>
+  <pre><code>1. Run Mosquitto locally and use its command-line tools to feel the
+   model:
+
+     mosquitto_sub -t 'plant1/#' -v
+     mosquitto_pub -t 'plant1/chiller3/temp_in' -m '21.4' -r
+
+   The -r makes it retained: kill the subscriber, restart it, and the
+   value is still there. That is the dashboard-at-3am feature.
+
+2. Set a last will. Connect a client with a will of
+   plant1/chiller3/status = offline (retained), publish online after
+   connecting, then kill the client with -9 rather than closing it
+   cleanly. Watch offline appear by itself. Nothing else in this
+   chapter is as useful to be able to describe.
+
+3. Design the topic hierarchy for a machine you know, on paper, and
+   then try to answer three questions with wildcards: all temperatures
+   in the plant; everything from one machine; every machine's status.
+   If any of those is awkward, the hierarchy is wrong -- and it is
+   much cheaper to find out now.
+
+4. Then implement it on the board with the lwIP MQTT client:
+   report-by-exception with a deadband, a full refresh every 30
+   seconds, timestamps from uptime, and a bounded outgoing queue with
+   a drop counter exposed over your existing interface.
+
+5. Break it deliberately: unplug for ten minutes, restart the broker
+   mid-publish, and confirm backoff with jitter, bounded buffering and
+   an undisturbed control loop. Then check that your local status
+   display told the truth the whole time.
+
+6. Only then add TLS, and measure what it cost you in flash, RAM and
+   handshake time. Those three numbers are a good answer to "have you
+   worked with secure connectivity?".</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>The device dials out to a broker</strong>, so nothing needs to be opened inbound &mdash;
+        which is why IT accepts it.</li>
+    <li><strong>Design the topic hierarchy early.</strong> It is an interface, and dashboards depend on
+        it.</li>
+    <li><strong>QoS 1 by default</strong>, so make messages idempotent and timestamped at the
+        source.</li>
+    <li><strong>Retained messages</strong> give a late subscriber the current value immediately.</li>
+    <li><strong>Set a last will</strong>, and publish an online status on connect; that is how absence
+        becomes detectable.</li>
+    <li><strong>Report by exception with a periodic full refresh</strong>, so a late or lossy consumer
+        converges.</li>
+    <li><strong>Treat inbound commands as untrusted</strong>: validate, check state, apply the same
+        interlocks as the local interface.</li>
+    <li><strong>Telemetry must never disturb control.</strong> Bounded queue, drop and count, no
+        blocking in the control path.</li>
+    <li><strong>Reconnect with exponential backoff and jitter</strong>, or a fleet takes the broker
+        down together.</li>
+    <li><strong>Bound offline buffering</strong>, and decide explicitly what to keep.</li>
+    <li><strong>Expose connection state and drop counts locally</strong>, or remote-monitoring
+        complaints cannot be investigated.</li>
+    <li><strong>TLS is the real cost</strong> &mdash; flash, RAM, handshake time, entropy and a clock
+        for certificate validity &mdash; and credentials must be per device.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Il cliente vuole vedere le macchine dall&rsquo;ufficio. Come lo imposterebbe?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Non aprendo porte sulla macchina. La macchina si collega <strong>lei</strong> verso un
+    broker MQTT e pubblica i suoi valori su topic gerarchici &mdash; stabilimento, linea, macchina,
+    misura &mdash; e chi vuole i dati si iscrive. Per l&rsquo;IT del cliente &egrave; una regola di
+    firewall in uscita e niente in ingresso, ed &egrave; il motivo per cui dicono di s&igrave;.
+    Pubblico a variazione con una banda morta, pi&ugrave; un aggiornamento completo periodico
+    cos&igrave; chi si collega dopo converge, con il timestamp messo alla sorgente, non quello di
+    arrivo al broker. Uso QoS 1, quindi i messaggi devono essere idempotenti perch&eacute; i duplicati
+    sono possibili. E due cose che considero obbligatorie: il retained, cos&igrave; una dashboard
+    aperta di notte vede subito l&rsquo;ultimo valore invece del vuoto, e soprattutto il last will
+    &mdash; dico al broker cosa pubblicare se cado, tipo status offline, e appena connesso pubblico
+    online: cos&igrave; l&rsquo;assenza di una macchina si nota da sola senza che nessuno faccia
+    polling. La parte che poi decide se il prodotto funziona davvero non &egrave; la connessione ma la
+    riconnessione: backoff esponenziale con jitter, se no dopo un blackout duecento macchine
+    ripartono insieme e tengono gi&ugrave; il broker; buffer offline limitato che scarta e conta; e
+    soprattutto la telemetria non deve mai poter disturbare il controllo &mdash; se il broker non
+    c&rsquo;&egrave;, la macchina continua a lavorare.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

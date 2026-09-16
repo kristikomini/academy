@@ -18,25 +18,286 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 9 — The industrial edge <span>&rsaquo;</span> Chapter 59</p>
+<p class="crumbs">Part 9 &mdash; The industrial edge <span>&rsaquo;</span> Chapter 59</p>
 <h1>The product behind this advert: liquid cooling</h1>
-<p class="lede">Pumps, flow, temperature and leaks. What a cooling controller actually has to do, and the interview answer that shows you read who they are.</p>
+<p class="lede">
+  The company in the anchor advert makes liquid-cooling components and systems for electrical and
+  electronic devices. This chapter works out what a controller for one of those actually has to do
+  &mdash; and turns it into the questions that show an interviewer you read who they are.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> Not a technical requirement in the advert, but reading the company's own product description and arriving with questions about it is the cheapest differentiator there is.</p>
+  <p>
+    <strong>Not a technical requirement</strong>, and the cheapest differentiator in the whole process.
+    Every candidate arrives having revised C. Almost none arrive having worked out what the company's
+    product does and what its firmware must therefore handle. This chapter is an exercise in doing that
+    for one real posting; the method transfers to any other.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="what">What the product is, and what it has to do</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Power electronics &mdash; the big converters and drives that run motors and machines &mdash; produce
+    a lot of heat in a small space. Air is often not enough, so a liquid is pumped past the hot parts,
+    carries the heat away, and gives it up somewhere else through a radiator.
+  </p>
+  <p>
+    The controller's job is to keep that circuit doing its work: run the pump fast enough, keep the
+    temperature in range, and notice immediately if the flow stops or the liquid leaks &mdash; because
+    the equipment being cooled is worth far more than the cooler.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    A cooling unit is a closed loop: a pump, a heat exchanger or radiator with fans, a reservoir, and
+    plumbing to a cold plate on the device being cooled. The firmware's inputs and outputs, which is
+    the useful thing to be able to list:
+  </p>
+  <ul>
+    <li><strong>Temperatures</strong> &mdash; inlet and outlet at minimum, plus ambient. The
+        <em>difference</em> between inlet and outlet, with flow, is the heat actually being removed,
+        which is a far better health indicator than either temperature alone.</li>
+    <li><strong>Flow</strong>, usually a pulse-output turbine or paddle sensor, so measurement is
+        <a href="32-timers-and-pwm.html">input capture and a frequency</a>, and the absence of pulses
+        is a stopped flow.</li>
+    <li><strong>Pressure</strong>, often 4&ndash;20 mA, and a level switch in the reservoir.</li>
+    <li><strong>Leak detection</strong>, typically a conductive strip or a float in a drip tray.</li>
+    <li><strong>The pump</strong> &mdash; PWM-controlled, with a tachometer back
+        (<a href="32-timers-and-pwm.html">chapter 32</a>) &mdash; and <strong>the fans</strong>, usually
+        the same.</li>
+    <li><strong>An interface to the host machine</strong>: dry-contact ready and alarm outputs at
+        minimum, and increasingly <a href="50-modbus-rtu.html">Modbus RTU</a> or
+        <a href="53-modbus-tcp.html">Modbus TCP</a>
+        (<a href="58-talking-to-the-plc.html">chapter 58</a> is the design conversation).</li>
+  </ul>
+  <p>
+    And the control problem, which is more interesting than it first looks. The obvious approach &mdash;
+    run the pump flat out &mdash; wastes energy, makes noise and wears the pump. The usual approach is
+    to <strong>modulate to hold a target temperature</strong>, and the trap is that the process has
+    large thermal inertia and transport delay: the water you heat at the cold plate arrives at the
+    outlet sensor seconds later. A controller tuned without respecting that delay oscillates. This is
+    the practical face of <a href="43-timing-and-jitter.html">timing</a> in a physical system, and
+    &ldquo;dead time&rdquo; is the word to use for it.
+  </p>
+  <p>
+    There is also a constraint that surprises people and is worth mentioning in an interview:
+    <strong>condensation</strong>. Cooling a surface below the dew point of the surrounding air puts
+    water on electronics. A controller that simply minimises temperature can destroy the thing it is
+    protecting, so the setpoint is bounded from below by ambient and humidity, not just by
+    efficiency.
+  </p>
+</div>
+
+<h2 id="failure">Designing for the failure, not the function</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Keeping something cool when everything works is the easy half. The controller exists mostly for the
+    other half: the pump seizes, a hose kinks, the liquid leaks, a sensor dies. What it does in those
+    seconds decides whether an expensive machine survives.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The failure list, and for each one the decision that has to be made and written down:
+  </p>
+  <ul>
+    <li><strong>No flow with the pump commanded on.</strong> Detected in a second or two by the absence
+        of pulses. Must raise an alarm to the host immediately, because the host has to reduce its own
+        load &mdash; the cooler cannot fix the problem, it can only report it in time. That is the key
+        architectural insight of the whole product: <strong>the fastest, most valuable thing the
+        controller does is tell the machine to back off.</strong></li>
+    <li><strong>Over-temperature</strong>, with two thresholds: a warning that lets the host throttle,
+        and a critical level that demands shutdown. Hysteresis on both, so an alarm cannot chatter.</li>
+    <li><strong>Leak or low level.</strong> Usually immediate shutdown of the pump, because pumping a
+        leak empties the circuit and running a pump dry destroys it.</li>
+    <li><strong>Sensor faults</strong>, from <a href="57-sensors-and-actuators.html">chapter 57</a>:
+        out of range, stuck, implausible rate, disagreeing pair. A controller that loses its outlet
+        sensor should fall back to a defined safe behaviour &mdash; typically full pump, alarm raised
+        &mdash; rather than to whatever the last number happened to be.</li>
+    <li><strong>Loss of communication with the host</strong>, which must not stop the cooling. The
+        machine can survive the controller being unable to talk; it cannot survive the controller
+        stopping the pump because a cable came loose. The safe state for a cooler is almost always
+        <em>keep cooling</em>, which is the opposite of the intuition people bring from other
+        systems.</li>
+    <li><strong>Power loss and restart.</strong> On restart, does the unit resume automatically? For a
+        cooler, almost certainly yes &mdash; but it must come up in a defined state, with the alarm
+        history preserved (<a href="34-flash-and-bootloader.html">chapter 34</a>), because a unit that
+        restarts silently after a fault hides the fault.</li>
+  </ul>
+  <p>
+    Every line of that list is a requirement, and writing them the way
+    <a href="64a-automotive-v-cycle.html">chapter 64a</a> describes &mdash; one obligation, a number
+    with a unit and a tolerance, a defined failure behaviour &mdash; is precisely the exercise this
+    chapter exists to prompt.
+  </p>
+</div>
+
+<h2 id="interview">Turning it into interview questions</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    At the end of an interview you are asked whether you have questions. Most people ask about the
+    team or the hours. Asking something specific about <em>their product</em> shows you prepared, and
+    it changes the conversation from an examination into a discussion between engineers.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Questions that are genuinely useful to you and that demonstrate preparation without pretending to
+    experience you do not have:
+  </p>
+  <ul>
+    <li><em>&ldquo;Does the cooling controller decide its own setpoint, or does the host machine
+        command it? Where does that boundary sit?&rdquo;</em> &mdash; the
+        <a href="58-talking-to-the-plc.html">who-is-master</a> question, and it is a real architectural
+        one.</li>
+    <li><em>&ldquo;How fast does a flow fault have to reach the host, and how is that communicated
+        &mdash; a dry contact, or over the bus?&rdquo;</em> &mdash; shows you understand the product's
+        actual purpose is protection.</li>
+    <li><em>&ldquo;How do you handle transport delay in the temperature loop? Is it a PID or something
+        simpler?&rdquo;</em></li>
+    <li><em>&ldquo;Is the same firmware used across the range with configuration, or one build per
+        model?&rdquo;</em> &mdash; the <a href="36-build-and-linker-script.html">variant</a>
+        question.</li>
+    <li><em>&ldquo;Can units be updated in the field, and over which interface?&rdquo;</em></li>
+    <li><em>&ldquo;Do you use Modbus with your customers, or their own protocol? Do you ever have to
+        speak PROFINET?&rdquo;</em> (<a href="55-industrial-ethernet.html">chapter 55</a>)</li>
+    <li><em>&ldquo;Is there a HIL bench, or is testing done on real units?&rdquo;</em>
+        (<a href="64-testing-firmware.html">chapter 64</a>)</li>
+  </ul>
+  <p>
+    And the honest framing to use with all of them, which
+    <a href="70-the-cv.html">chapter 70</a> makes the general case for: you are not claiming to know
+    their product, you are showing that you read their site, worked out what the firmware must handle,
+    and arrived with the right questions. That is a completely different impression from a candidate
+    who has revised pointers and nothing else, and it costs one evening.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>liquid, cooling, chiller, pump, flow, rate, sensor, temperature, delta, t</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>Researching the company becomes pretending to know their product, and the interview turns
+    into an examination you lose.</strong>
+  </p>
+  <p>
+    The failure looks like this: you read a product page, you say &ldquo;so you use a PID on the
+    outlet temperature with feed-forward from the load&rdquo;, and the engineer &mdash; who has spent
+    four years on exactly that loop &mdash; asks how you would handle the transport delay at low flow.
+    Two questions later it is clear you were reciting, and everything else you said is now suspect.
+  </p>
+  <p>
+    The version that works uses the same preparation and the opposite grammar: <strong>state what you
+    worked out, mark it as a guess, and ask.</strong> <em>&ldquo;From your site I gather the unit has
+    to detect loss of flow quickly and tell the host to reduce load, because the cooler cannot fix the
+    problem itself &mdash; is that the main safety function, or is over-temperature the one that
+    matters more in practice?&rdquo;</em> That sentence proves you understood the product, invites them
+    to correct you, and cannot collapse, because you claimed a deduction rather than knowledge.
+  </p>
+  <p>
+    It is the same discipline as the whole course: <strong>claim what you can defend, and be
+    specific about the boundary.</strong> A junior who says &ldquo;I have not worked on a cooling
+    system, but here is what I think its firmware has to worry about, and here is what I would want to
+    know&rdquo; is doing the job of the interview correctly &mdash; and it is much rarer than technical
+    knowledge.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> This exercise is an evening of work and it is worth more per hour than
+  any other in this course.</p>
+  <pre><code>1. Read the company's own product pages -- not the advert -- and
+   write one page: what they make, who buys it, what the firmware
+   inside it must therefore do. Do this for the specific company you
+   are applying to, not for the industry in general.
+
+2. Write the ten requirements you think that firmware has, in the
+   form from chapter 64a: one obligation each, a number with a unit
+   and a tolerance, and a defined behaviour on failure. Example: "on
+   loss of flow with the pump commanded, the alarm output shall be
+   asserted within 2 s".
+
+3. Build a simulation of the plant. Fifty lines on a PC: a thermal
+   mass, a transport delay, a pump whose speed sets the flow. Then
+   write a controller against it and watch it oscillate when you
+   ignore the delay. That is an afternoon, it runs on your laptop, and
+   it is a genuinely impressive thing to be able to describe.
+
+4. Then build a miniature of it on a Nucleo: PWM to a PC fan for the
+   pump, its tachometer through input capture for flow, an NTC or a
+   Pt1000 for temperature, Modbus RTU over RS-485 to a PC acting as
+   the host machine, and the full fault list from this chapter. That
+   project touches chapters 31, 32, 33, 45, 46, 47, 50 and 57, and it
+   is the single best portfolio item this course can point you at.
+
+5. Write the five questions you would ask at the end of the
+   interview. Not from the list above -- your own, from your page in
+   step 1.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Read what the company makes, not just the advert.</strong> It is the cheapest
+        differentiator available.</li>
+    <li><strong>A cooling controller's main job is protection</strong>: telling the host to back off
+        fast enough matters more than holding a temperature precisely.</li>
+    <li><strong>Inlet minus outlet, with flow, is the real health indicator</strong>, not either
+        temperature alone.</li>
+    <li><strong>Absence of flow pulses is the fault signal</strong>, so it needs a timeout, not an
+        infinite wait.</li>
+    <li><strong>The process has thermal inertia and transport delay.</strong> A loop tuned without
+        respecting dead time oscillates.</li>
+    <li><strong>Do not cool below the dew point.</strong> Condensation destroys the equipment you are
+        protecting.</li>
+    <li><strong>Two thresholds with hysteresis</strong>: warn so the host can throttle, then shut down
+        critically.</li>
+    <li><strong>Leak or low level stops the pump</strong>; running a pump dry destroys it.</li>
+    <li><strong>Loss of communication must not stop cooling.</strong> For a cooler the safe state is
+        keep cooling.</li>
+    <li><strong>Restart into a defined state and preserve the alarm history</strong>, so a fault cannot
+        hide behind a silent reboot.</li>
+    <li><strong>Every failure needs a decided, written behaviour</strong> &mdash; that list is the
+        requirements document.</li>
+    <li><strong>State your deductions as deductions and ask.</strong> Claiming their product collapses;
+        reasoning about it does not.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Ha guardato cosa facciamo? Secondo lei di cosa si deve occupare il firmware di un nostro gruppo di raffreddamento?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Ho letto le vostre pagine prodotto, quindi le dico quello che ho dedotto e mi corregga
+    pure. Mi immagino un circuito chiuso: pompa, scambiatore con ventole, sensori di temperatura in
+    mandata e ritorno, portata, pressione, livello e rilevamento perdite. La parte di regolazione
+    &egrave; modulare la pompa per tenere una temperatura obiettivo, e immagino che il problema vero l&igrave;
+    sia il ritardo di trasporto: l&rsquo;acqua che scaldo sulla piastra arriva al sensore di uscita
+    dopo qualche secondo, e se taro l&rsquo;anello ignorandolo oscilla. Ma la cosa che mi sembra il
+    cuore del prodotto &egrave; un&rsquo;altra: il gruppo non pu&ograve; risolvere un guasto, pu&ograve;
+    solo accorgersene in fretta e dirlo alla macchina perch&eacute; riduca il carico. Quindi la
+    funzione pi&ugrave; critica secondo me &egrave; rilevare la mancanza di portata &mdash; assenza di
+    impulsi dal flussimetro, quindi un timeout, non un&rsquo;attesa infinita &mdash; e alzare
+    l&rsquo;allarme entro un tempo garantito. E lo stato sicuro qui &egrave; controintuitivo: se cade
+    la comunicazione col PLC, io devo continuare a raffreddare, non fermarmi. Le domande che avrei:
+    il setpoint lo decidete voi o lo comanda la macchina ospite? In quanto tempo deve arrivare
+    l&rsquo;allarme di portata, e su contatto pulito o su bus? E usate Modbus con i clienti o vi
+    chiedono anche PROFINET?&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

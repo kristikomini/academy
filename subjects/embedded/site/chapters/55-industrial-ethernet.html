@@ -18,25 +18,295 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 8 — Ethernet and the network <span>&rsaquo;</span> Chapter 55</p>
+<p class="crumbs">Part 8 &mdash; Ethernet and the network <span>&rsaquo;</span> Chapter 55</p>
 <h1>Industrial Ethernet: PROFINET, EtherCAT, EtherNet/IP, OPC UA</h1>
-<p class="lede">Four names that appear together in adverts and are not alternatives. What each is for, and which need a stack, a licence or dedicated silicon.</p>
+<p class="lede">
+  Four names that appear together in adverts and are not four versions of the same thing. Three are
+  real-time field buses over Ethernet cabling, tied to different PLC vendors; the fourth is not a
+  field bus at all. Which one you need is decided by whose PLC is in the cabinet, and it changes the
+  whole architecture &mdash; and the budget.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> Regional adverts list these as a set; knowing which one the customer's PLC speaks decides the whole architecture.</p>
+  <p>
+    <strong>Not in the anchor advert</strong>, and listed as a set across the regional listings
+    collected beside it. They belong here for a practical reason: a junior who can say what each one
+    is, and that they are not alternatives you pick by preference, is ahead of most candidates &mdash;
+    and the honest answer to &ldquo;have you implemented one?&rdquo; is almost always no, for reasons
+    this chapter makes defensible.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="why">Why ordinary Ethernet is not enough</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Ordinary Ethernet makes no promise about <em>when</em> a message arrives. Usually it is fast; but if
+    two devices transmit at once, a switch holds one back, and occasionally a message is delayed by
+    milliseconds.
+  </p>
+  <p>
+    For a web page that does not matter. For eight motors that must move in step, it does: the command
+    has to arrive at every axis at the same instant, every cycle, without exception. So the industry
+    built protocols that use Ethernet cables and hardware but add their own rules about timing.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The requirement is <strong>determinism</strong>, which is <a href="37-what-real-time-means.html">chapter
+    37</a> applied to a network: a bounded worst case, not a good average. Standard switched Ethernet
+    with TCP/IP gives you neither bounded latency nor bounded jitter, because queueing delay depends on
+    other people's traffic. The three real-time protocols each solve it differently:
+  </p>
+  <ul>
+    <li><strong>PROFINET</strong> (Siemens ecosystem, the default in most Italian plants). Runs over
+        standard Ethernet hardware. <em>RT</em> traffic uses a dedicated EtherType and bypasses IP, and
+        it shares the wire with ordinary TCP/IP traffic; cycle times of a few milliseconds are typical.
+        <em>IRT</em> adds scheduled time slots and needs special switch silicon for microsecond
+        precision. A device is described by a <strong>GSDML</strong> file that the engineering tool
+        imports.</li>
+    <li><strong>EtherCAT</strong> (Beckhoff). The clever one: a single frame is sent round a ring and
+        each slave reads its own data out of it and writes its reply <em>into the frame as it passes
+        through</em>, in hardware, without storing and forwarding. That is why cycle times reach tens
+        of microseconds with a hundred axes. It requires a dedicated slave controller chip &mdash; an
+        ESC such as an ET1100, or an MCU with EtherCAT peripherals &mdash; so the cost is in silicon and
+        the device description is an <strong>ESI</strong> file.</li>
+    <li><strong>EtherNet/IP</strong> (Rockwell, dominant in North America). Encapsulates the CIP object
+        model over ordinary TCP and UDP; implicit cyclic messaging runs over UDP, explicit
+        request-response over TCP. Runs on standard hardware; devices carry an <strong>EDS</strong>
+        file.</li>
+    <li><strong>OPC UA</strong> is <em>not</em> a field bus and grouping it with the others is the
+        common misunderstanding. It is a platform-independent, secure, information-modelling protocol
+        for machine-to-machine and machine-to-IT communication: browsable address spaces, typed
+        objects, subscriptions, built-in authentication and encryption. Classic OPC UA over TCP is for
+        supervision, MES and configuration, not for a motion loop. <strong>OPC UA PubSub over
+        TSN</strong> is the initiative aiming at the deterministic case, and it is genuinely different
+        from the classic client-server usage.</li>
+  </ul>
+  <p>
+    Two more names worth recognising: <strong>TSN</strong> (Time-Sensitive Networking), a set of IEEE
+    standards adding scheduling and time synchronisation to plain Ethernet, which most of the above are
+    converging towards; and <strong>IEEE 1588 / PTP</strong>, the precision time protocol that lets
+    distributed nodes share a clock to sub-microsecond accuracy, which underpins the synchronised
+    cases.
+  </p>
+</div>
+
+<h2 id="implementing">What implementing one actually involves</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    You do not write these protocols yourself. You buy a stack, or a module, or a chip &mdash; and then
+    you pay to have the result tested and certified by the organisation that owns the protocol, so that
+    it may carry the name.
+  </p>
+  <p>
+    That is why the choice is a business decision as much as an engineering one, and why it is decided
+    early.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The routes, roughly in order of cost and control:
+  </p>
+  <ul>
+    <li><strong>A drop-in module</strong> &mdash; Anybus, netX and similar &mdash; a small board that
+        speaks the field bus on one side and a simple serial or SPI interface to your MCU on the other.
+        Highest unit cost, lowest engineering cost, and you can support several protocols by fitting
+        different modules to the same design. For a small manufacturer this is very often the right
+        answer, and saying so in an interview reads as commercial sense rather than as a lack of
+        ambition.</li>
+    <li><strong>A commercial stack</strong> ported onto your MCU, with a licence fee and vendor
+        support.</li>
+    <li><strong>An open-source stack</strong> &mdash; SOEM as an EtherCAT master, or a p-net PROFINET
+        device stack &mdash; which is excellent for learning and for prototypes, and which still leaves
+        certification, conformance testing and long-term maintenance with you.</li>
+    <li><strong>Dedicated silicon</strong>, where EtherCAT effectively requires an ESC, and some MCUs
+        integrate industrial-protocol peripherals.</li>
+  </ul>
+  <p>
+    Besides the stack, every one of these brings obligations that surprise people: a
+    <strong>device description file</strong> (GSDML, ESI, EDS) that must match the firmware exactly;
+    <strong>conformance testing</strong> at an accredited lab; <strong>membership</strong> of the
+    relevant organisation and licence terms governing the logo; and a <strong>vendor ID</strong> that
+    has to be obtained. None of that is firmware work, and all of it lands on the project.
+  </p>
+  <p>
+    The honest firmware summary, which is also the useful interview line: <strong>you do not implement
+    PROFINET, you integrate it</strong> &mdash; mapping your application's data into the process image
+    the stack exposes, meeting its cycle deadlines, handling its state machine, and keeping your
+    control loop deterministic underneath it (<a href="43-timing-and-jitter.html">chapter 43</a>).
+  </p>
+</div>
+
+<h2 id="choosing">Which one, and what it means for the architecture</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The protocol is not chosen by what you like. It is chosen by which PLC the customer already owns,
+    because their PLC decides what it can talk to.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The decision tree in practice:
+  </p>
+  <ul>
+    <li><strong>Siemens PLC</strong> &rarr; PROFINET. In Italian manufacturing this is the majority
+        case by a wide margin.</li>
+    <li><strong>Beckhoff, or motion with many synchronised axes</strong> &rarr; EtherCAT.</li>
+    <li><strong>Rockwell / Allen-Bradley, typically an American customer</strong> &rarr;
+        EtherNet/IP.</li>
+    <li><strong>MES, supervision, data to the IT world</strong> &rarr; OPC UA &mdash; or
+        <a href="54-mqtt-and-the-plant-network.html">MQTT</a>, which is lighter and often preferred
+        for pure telemetry.</li>
+    <li><strong>None of the above, or budget matters more than cycle time</strong> &rarr;
+        <a href="53-modbus-tcp.html">Modbus TCP</a>, which every PLC on the market can speak and which
+        costs nothing in licences. A great many perfectly good industrial products ship with exactly
+        this, and knowing when it is sufficient is worth as much as knowing the fancier options.</li>
+  </ul>
+  <p>
+    What it means for your firmware, which is the part a firmware engineer is actually accountable for:
+    a real-time field bus imposes a <strong>cycle deadline you must meet every time</strong>, so the
+    process image has to be updated within the cycle without ever blocking; it usually wants its own
+    <strong>task at high priority</strong> in the RTOS (<a href="39-tasks-and-scheduler.html">chapter
+    39</a>); it adds a <strong>state machine</strong> for connection establishment and parameterisation
+    that your application must follow; and it constrains part selection, RAM and sometimes the PHY.
+    None of that is optional, and all of it is easier if the layering in
+    <a href="35-firmware-architecture.html">chapter 35</a> already keeps your control logic
+    independent of whoever is asking for the data.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>profinet, rt, irt, profibus, ethercat, distributed, clocks, slave, controller, esc</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>Claiming one of these four on a CV, and being asked which conformance test you
+    failed.</strong>
+  </p>
+  <p>
+    These names look like protocol knowledge and are largely ecosystem knowledge. Somebody who has
+    integrated PROFINET has a GSDML file that took three attempts to match the firmware, an opinion
+    about the alarm mechanism, and a memory of a conformance test that failed on something procedural.
+    Somebody who has read about it has four bullet points. The gap is visible in one follow-up
+    question, and this is the single easiest place in this whole course to overclaim
+    (<a href="70-the-cv.html">chapter 70</a>).
+  </p>
+  <p>
+    What is both true and worth saying, if you have done the exercises below: <em>&ldquo;I have not
+    integrated PROFINET on a product. I know it is Siemens's ecosystem, that RT traffic bypasses IP and
+    shares the wire with normal TCP while IRT needs scheduled switches, that a device is described by a
+    GSDML file which has to match the firmware, and that conformance testing and a vendor ID are part
+    of the project rather than an afterthought. I have run an EtherCAT master on a PC with SOEM against
+    a real slave, so I understand the process image and the cycle, and I would expect to be integrating
+    a stack rather than writing one.&rdquo;</em> That answer is accurate, it is checkable, and it is
+    far stronger than a claim that collapses.
+  </p>
+  <p>
+    The second half of the trap is architectural rather than personal: <strong>assuming a field bus can
+    be added at the end.</strong> It changes the MCU, the RAM budget, the PHY, the task structure, the
+    certification plan and the schedule. When somebody says &ldquo;and then we will add PROFINET&rdquo;
+    late in a project, the honest response is that it is a new project for the communication half of the
+    product &mdash; and being the person who says so early is valuable.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> You can get real experience here on a PC, for nothing, and it is
+  disproportionately impressive because almost no junior has done it.</p>
+  <pre><code>1. Read one GSDML and one ESI file. Both are XML and both are freely
+   downloadable from any vendor's site. Find the process-image
+   definition: the actual bytes exchanged every cycle. That structure
+   is what your firmware would have to fill.
+
+2. Run an EtherCAT master on Linux with SOEM (Simple Open EtherCAT
+   Master). Even without a slave, its examples and source show the
+   cycle, the process image and the state machine -- and if you can
+   borrow any EtherCAT slave device, you can scan and drive it in
+   about fifty lines.
+
+3. Capture PROFINET traffic in Wireshark, which decodes it, from any
+   site or demo kit you can get near. Look at the RT frames: note the
+   EtherType, that there is no IP header, and the cycle time between
+   frames. Ten minutes and the protocol stops being an acronym.
+
+4. Run an OPC UA server on your PC (open62541 or the Python
+   opcua-asyncio) and browse it with UaExpert, the free client. Build
+   a small information model -- a machine object with temperature and
+   status variables -- and subscribe to changes. THIS is the one most
+   likely to appear in a job you actually get, and it runs entirely on
+   a laptop.
+
+5. Then write the comparison table yourself, from what you saw: which
+   needs special silicon, which shares the wire with TCP/IP, which is
+   client-server rather than cyclic, which cycle times each reaches,
+   and what file describes a device. Being able to produce that table
+   from memory is the realistic goal of this chapter.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>They are not alternatives you choose by preference.</strong> The customer's PLC
+        decides.</li>
+    <li><strong>Standard Ethernet gives no bounded latency</strong>; these protocols exist to add
+        determinism.</li>
+    <li><strong>PROFINET is Siemens</strong>, runs on standard hardware, RT bypasses IP, IRT needs
+        scheduled switches, device described by GSDML.</li>
+    <li><strong>EtherCAT processes a frame on the fly</strong> as it passes each slave, reaching tens of
+        microseconds, and needs dedicated slave silicon; described by ESI.</li>
+    <li><strong>EtherNet/IP is CIP over TCP and UDP</strong>, Rockwell's ecosystem, described by
+        EDS.</li>
+    <li><strong>OPC UA is not a field bus</strong> &mdash; it is secure information modelling for
+        supervision and IT, with PubSub over TSN aiming at the deterministic case.</li>
+    <li><strong>You integrate a stack, you do not write one</strong>: module, commercial stack,
+        open-source stack, or dedicated silicon.</li>
+    <li><strong>The device description file must match the firmware exactly</strong>, and conformance
+        testing, membership and a vendor ID are project costs.</li>
+    <li><strong>Modbus TCP is enough for a great many products</strong>, costs no licence, and every
+        PLC speaks it.</li>
+    <li><strong>A field bus imposes a cycle deadline</strong>, a high-priority task and a connection
+        state machine on your firmware.</li>
+    <li><strong>It cannot be added at the end.</strong> It changes the MCU, the RAM, the schedule and
+        the certification plan.</li>
+    <li><strong>Do not overclaim these.</strong> Say what you have run, and what you would expect to
+        integrate.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Conosce PROFINET, EtherCAT, EtherNet/IP, OPC UA?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;So cosa sono e so soprattutto che non sono quattro alternative fra cui si sceglie per
+    gusto: decide il PLC che ha il cliente. PROFINET &egrave; il mondo Siemens, gira su hardware
+    Ethernet standard, il traffico RT salta l&rsquo;IP e convive sul filo col TCP normale, mentre
+    l&rsquo;IRT vuole switch con slot programmati; il dispositivo &egrave; descritto da un file GSDML.
+    EtherCAT &egrave; Beckhoff ed &egrave; l&rsquo;idea pi&ugrave; elegante: il frame gira
+    nell&rsquo;anello e ogni slave legge e scrive al volo mentre passa, in hardware &mdash; per questo
+    arriva a decine di microsecondi con tanti assi &mdash; ma serve un chip slave dedicato.
+    EtherNet/IP &egrave; CIP sopra TCP e UDP, mondo Rockwell, tipicamente clienti americani. E OPC UA
+    non &egrave; un bus di campo, ed &egrave; l&rsquo;errore pi&ugrave; comune metterlo nella stessa
+    lista: &egrave; modellazione dati sicura per supervisione e MES, client-server, non per un anello
+    di controllo assi &mdash; il caso deterministico &egrave; PubSub su TSN. Sul lato pratico sono
+    onesto: non ne ho integrato uno su un prodotto. So che non si scrivono, si integrano &mdash;
+    modulo tipo Anbus, stack commerciale o open source &mdash; e che il file di descrizione deve
+    combaciare col firmware e che la certificazione di conformit&agrave; e il vendor ID sono costi di
+    progetto, non dettagli. Ho provato un master EtherCAT su PC con SOEM e ho costruito un server OPC
+    UA con open62541 per capire il modello. E dico sempre che per moltissimi prodotti Modbus TCP basta
+    e non costa licenze.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

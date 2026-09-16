@@ -18,25 +18,276 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 8 — Ethernet and the network <span>&rsaquo;</span> Chapter 51</p>
+<p class="crumbs">Part 8 &mdash; Ethernet and the network <span>&rsaquo;</span> Chapter 51</p>
 <h1>Ethernet on a microcontroller</h1>
-<p class="lede">MAC, PHY, MII and RMII, descriptors and buffers. What the silicon does for you and what your firmware still has to do.</p>
+<p class="lede">
+  Two chips pretending to be one: a MAC inside the microcontroller and a PHY outside it, joined by a
+  bus called RMII. Descriptors, buffers, and the division of labour between silicon that handles the
+  wire and firmware that handles everything else.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p>This chapter answers <em>"Conoscenza approfondita dei protocolli di comunicazione seriale e Ethernet"</em> &mdash; a line that appeared in the adverts this course was built from.</p>
+  <p>
+    This chapter answers <em>&ldquo;Conoscenza approfondita dei protocolli di comunicazione seriale e
+    Ethernet&rdquo;</em> &mdash; a line that appeared in the adverts this course was built from. The
+    word <em>approfondita</em> is doing the work: a candidate who has plugged in a cable and seen a
+    web page has not met this chapter, and the questions that separate the two are about descriptors
+    and buffers rather than about IP addresses.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="mac-phy">MAC, PHY, and the bus between them</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Ethernet on a small board is two pieces. Inside the microcontroller is the part that assembles and
+    checks frames &mdash; the addresses, the length, the checksum. Outside, in a separate small chip, is
+    the part that actually drives electricity down the cable and recovers it at the other end.
+  </p>
+  <p>
+    They talk to each other over a small parallel bus, and there is a second, slower connection used
+    only for configuration: asking the outside chip whether a cable is plugged in, and at what speed
+    the other end agreed to talk.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>The MAC</strong> is inside the MCU. It builds and parses frames, filters by
+        destination address, computes and checks the frame CRC, and moves payload to and from memory
+        &mdash; almost always by <a href="27-dma.html">DMA</a>, because at 100 Mbit/s a frame arrives
+        every 12 &micro;s at worst and no CPU should be copying it by hand.</li>
+    <li><strong>The PHY</strong> is an external chip. It does the analogue work: line driving,
+        equalisation, clock recovery, auto-negotiation, and link detection. Between them sits a
+        magnetics module &mdash; a small transformer block, often inside the RJ45 connector &mdash;
+        which provides galvanic isolation. That isolation is why Ethernet survives being run between
+        two machines with different ground potentials, and it is worth knowing when somebody proposes
+        replacing it.</li>
+    <li><strong>MII</strong> uses 16 pins at 25 MHz; <strong>RMII</strong> uses 7 at 50 MHz and is what
+        nearly every design chooses, because pins are scarce
+        (<a href="29-the-stm32-family.html">chapter 29</a>). RMII needs a single 50 MHz reference
+        clock shared by MAC and PHY, and getting that clock wrong &mdash; wrong source, wrong pin,
+        missing entirely &mdash; is the most common reason a new board's Ethernet never comes up
+        at all.</li>
+    <li><strong>MDIO / MDC</strong> is the slow two-wire management bus to the PHY's registers: link
+        status, speed, duplex, auto-negotiation results, and the PHY address strapped on the board.
+        Your driver reads these at start-up and on link change, and if the strapped PHY address does
+        not match what the software expects, everything else fails silently.</li>
+  </ul>
+  <p>
+    What the hardware does <em>not</em> do: nothing above the frame. IP, ARP, UDP, TCP, DHCP and
+    everything else are software, which is <a href="52-tcp-ip-in-64kb.html">chapter 52</a>. Many
+    STM32 MACs will offload the IP, TCP and UDP checksums, which is worth enabling because it is free
+    performance &mdash; but it has to be enabled consistently in both the MAC and the stack, or you get
+    frames with zero checksums that a switch silently drops.
+  </p>
+</div>
+
+<h2 id="descriptors">Descriptors and buffers</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The MAC does not ask your program for permission to receive a frame. It has a list of memory
+    blocks you have handed it in advance, and it fills them as frames arrive, ticking each one off as
+    it goes.
+  </p>
+  <p>
+    Your job is to take the filled ones, do something with them, and give them back. If you are slow,
+    the list runs out and frames are simply dropped &mdash; and once that starts, it tends to keep
+    happening.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The structure is a <strong>ring of descriptors</strong>, each pointing at a buffer and carrying an
+    ownership bit: <em>owned by the DMA</em> or <em>owned by the CPU</em>. Receiving is a loop of:
+    find a descriptor the DMA has handed back, process or queue its buffer, then set the ownership
+    bit back to the DMA. Transmitting is the mirror image.
+  </p>
+  <p>
+    The details that decide whether it works under load:
+  </p>
+  <ul>
+    <li><strong>Buffer count is a design decision, not a default.</strong> Four receive buffers is
+        fine on a bench and not fine on a busy plant network where broadcast traffic arrives in
+        bursts. Count the overruns the MAC reports and expose that counter
+        (<a href="49-can-and-canopen.html">the same argument as the CAN error counters</a>).</li>
+    <li><strong>Return descriptors promptly.</strong> A design that holds a buffer for the whole
+        duration of application processing starves the ring. Either copy out quickly or use a stack
+        with proper buffer ownership, which is what lwIP's pbuf model exists for.</li>
+    <li><strong>Alignment and placement matter.</strong> Descriptors and buffers must sit where the
+        Ethernet DMA can reach them &mdash; on some STM32 parts that excludes CCM RAM entirely, which
+        produces a driver that works perfectly except that it never receives anything.</li>
+    <li><strong>On a Cortex-M7, caches.</strong> This is the classic: the DMA writes the frame into
+        SRAM, the CPU reads a stale cache line, and the packet appears corrupted or empty &mdash;
+        while the debugger shows the memory as correct, because the debugger reads through a
+        different path (<a href="22-cortex-m.html">chapter 22</a>). Either place buffers in a
+        non-cacheable MPU region or invalidate and clean correctly, and expect to lose a day to this
+        once.</li>
+    <li><strong>A frame is up to 1518 bytes.</strong> With a handful of buffers each way plus the
+        stack's own memory, Ethernet costs tens of kilobytes of RAM before any application data, which
+        is why it changes part selection.</li>
+  </ul>
+</div>
+
+<h2 id="bringup">Bringing a link up, in order</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    When Ethernet does not work on a new board, the fault is almost always in one of three places, and
+    they can be checked in order: is there a link at all, are frames being received, and is the
+    software above answering.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ol>
+    <li><strong>Link.</strong> The PHY's LEDs and its status register agree, or they do not. No link
+        means hardware: the magnetics, the cable, the 50 MHz reference clock, the PHY's power or reset
+        line. No software above this level can help.</li>
+    <li><strong>MDIO.</strong> Can you read the PHY's identifier registers and get a sensible
+        manufacturer value? If that returns <code>0xFFFF</code> or zeros, the management bus or the
+        PHY address is wrong, and nothing else will work.</li>
+    <li><strong>Frames.</strong> Put the MAC in promiscuous mode and count received frames. On any
+        real network there is background traffic within seconds &mdash; ARP, broadcasts, discovery.
+        Zero frames with a good link points at descriptors, buffer placement or the DMA
+        configuration.</li>
+    <li><strong>ARP.</strong> Ping the board from a PC and watch for an ARP request arriving and a
+        reply going out. This is the first point where the stack participates.</li>
+    <li><strong>ICMP, then your protocol.</strong> Only now is <code>ping</code> meaningful.</li>
+  </ol>
+  <p>
+    And the instrument that makes all of this fast: <strong>Wireshark on a PC, with the board on its
+    own switch or connected directly</strong>. A capture answers &ldquo;did the frame leave, and was
+    it well-formed&rdquo; in seconds, which is the Ethernet equivalent of putting a
+    <a href="62-scope-and-logic-analyser.html">logic analyser on a serial line</a>. Learning to read a
+    capture is not optional for anybody who claims Ethernet on a CV.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>ethernet, mac, phy, mii, rmii, magnetics, rj45, descriptor, ring, buffer</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>It works on the bench with a direct cable and falls apart on the customer's network,
+    because a plant network is nothing like a desk.</strong>
+  </p>
+  <p>
+    On your desk there are two devices and almost no traffic. On a real network there is broadcast and
+    multicast traffic arriving continuously, other devices probing, a switch that may enforce
+    port security, and possibly a storm when somebody miswires a loop. A receive path sized for the
+    bench overruns; a stack that allocates per packet fragments; a device that replies to every
+    broadcast wastes its own CPU; and a discovery protocol you never tested floods you with packets
+    you do not understand.
+  </p>
+  <p>
+    Three things to build in from the start. <strong>Filter in hardware</strong>: configure the MAC's
+    address filter and multicast hash so that traffic which is not for you is dropped in silicon
+    rather than in your CPU. <strong>Bound everything</strong> &mdash; a fixed pool of buffers, a
+    fixed number of connections, and defined behaviour when the pool is empty, which is dropping and
+    counting rather than blocking (<a href="61-printf-and-tracing.html">chapter 61</a>).
+    <strong>Test under load deliberately</strong>: a broadcast flood from a PC for an hour, while your
+    device carries its normal traffic, is a twenty-minute experiment that finds what six months in a
+    factory would.
+  </p>
+  <p>
+    The related organisational trap: the moment a device has an Ethernet port, it belongs to the
+    customer's <em>IT</em> department as well as to their maintenance team. Fixed address or DHCP,
+    which VLAN, which ports must be open, what happens when the network is down for an hour &mdash;
+    these become requirements, and they are much cheaper to ask about at design time than to discover
+    at installation (<a href="53-modbus-tcp.html">chapter 53</a>).
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> A Nucleo-F746ZG or any board with an RJ45 is about twenty-five euro, and
+  the PC side needs only Wireshark.</p>
+  <pre><code>1. Before writing any code, read the PHY over MDIO and print its ID
+   registers, link status, speed and duplex. If that works, the
+   hardware path is proven and everything after it is software.
+
+2. Put the MAC in promiscuous mode, count received frames, and print
+   the count once a second. Plug into any office network and watch
+   background traffic arrive. Zero frames with a good link means
+   descriptors or buffer placement.
+
+3. Print the first 32 bytes of one received frame as hex and decode
+   it by hand: destination MAC, source MAC, EtherType. Doing this once
+   makes every later capture readable.
+
+4. Run Wireshark on a PC connected directly to the board, filter on
+   your board's MAC address, and watch your ARP reply go out. Then
+   deliberately break the checksum offload configuration and watch the
+   PC drop your frames -- a bug that is invisible on the board and
+   obvious in a capture.
+
+5. Instrument the ring: count receive overruns and transmit
+   descriptor exhaustion, and expose both. Then flood the board with
+   broadcast traffic from the PC (ping -f to a broadcast address, or
+   iperf) and watch the counters move. Size your buffers from what you
+   see rather than from the example project.
+
+6. If your part is an M7, put a receive buffer in cacheable memory
+   on purpose and watch reception break in a way the debugger denies.
+   Then fix it with an MPU region. That is a day saved, later.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>MAC inside, PHY outside, magnetics for isolation.</strong> RMII between them, with one
+        shared 50 MHz reference.</li>
+    <li><strong>A missing or wrong RMII reference clock</strong> is the most common reason a new
+        board's Ethernet never comes up.</li>
+    <li><strong>MDIO first.</strong> If the PHY ID registers do not read sensibly, nothing above will
+        work.</li>
+    <li><strong>The MAC owns a ring of descriptors</strong> with an ownership bit; return them
+        promptly or the ring starves.</li>
+    <li><strong>Buffer count is a design decision.</strong> Count overruns and expose the
+        counter.</li>
+    <li><strong>Buffers must live where the Ethernet DMA can reach them</strong> &mdash; not CCM RAM on
+        many parts.</li>
+    <li><strong>On an M7, cache maintenance or a non-cacheable region</strong>, and the debugger will
+        hide the bug.</li>
+    <li><strong>Enable checksum offload consistently</strong> in both MAC and stack, or a switch drops
+        your frames.</li>
+    <li><strong>Filter in hardware</strong> so traffic that is not yours never reaches your CPU.</li>
+    <li><strong>Bring up in order: link, MDIO, frames, ARP, ICMP</strong>, and use Wireshark from the
+        first minute.</li>
+    <li><strong>Test under a broadcast flood</strong>; a bench with two devices proves almost
+        nothing.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Ethernet su microcontrollore: cosa fa l&rsquo;hardware e cosa resta al firmware?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;L&rsquo;hardware fa il livello due e basta. Dentro l&rsquo;MCU c&rsquo;&egrave; il MAC,
+    che monta e verifica le trame, filtra sull&rsquo;indirizzo, calcola il CRC e sposta i dati in
+    memoria via DMA; fuori c&rsquo;&egrave; il PHY, che fa la parte analogica, e in mezzo le magnetiche
+    che danno l&rsquo;isolamento galvanico &mdash; che &egrave; il motivo per cui l&rsquo;Ethernet
+    sopravvive fra due macchine con masse diverse. Il collegamento &egrave; RMII, sette pin e un
+    riferimento a 50 MHz condiviso: se quel clock &egrave; sbagliato la scheda non parte proprio, ed
+    &egrave; il guasto numero uno sulle schede nuove. Poi c&rsquo;&egrave; l&rsquo;MDIO, e la prima
+    cosa che faccio in bring-up &egrave; leggere i registri di identificazione del PHY: se quelli
+    tornano, il percorso hardware &egrave; dimostrato. Tutto il resto &egrave; software: IP, ARP, UDP,
+    TCP. Al firmware resta la gestione dei descrittori &mdash; un anello con un bit di propriet&agrave;
+    &mdash; e soprattutto il dimensionamento dei buffer, che non &egrave; un default: su una rete di
+    stabilimento arriva un sacco di traffico broadcast, e un percorso di ricezione tarato sul banco va
+    in overrun. Quindi filtro in hardware quello che non &egrave; per me, conto gli overrun e li
+    espongo, e provo il dispositivo sotto flood di broadcast prima di consegnarlo. E uso Wireshark dal
+    primo minuto: una cattura risponde in due secondi alla domanda se la trama &egrave; uscita ed
+    &egrave; ben formata.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

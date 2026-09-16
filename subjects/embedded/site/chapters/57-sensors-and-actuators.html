@@ -18,25 +18,292 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 9 — The industrial edge <span>&rsaquo;</span> Chapter 57</p>
+<p class="crumbs">Part 9 &mdash; The industrial edge <span>&rsaquo;</span> Chapter 57</p>
 <h1>Sensors, actuators and the signals between them</h1>
-<p class="lede">24 V logic, PNP and NPN, 4-20 mA and its live zero, thermocouples and RTDs, relays and the inductive kickback that resets your board.</p>
+<p class="lede">
+  The electrical vocabulary of a factory: 24 V logic, PNP and NPN, 4&ndash;20 mA and its live zero,
+  thermocouples and RTDs, and the inductive kickback that resets your board. Firmware does not design
+  this, and firmware that does not understand it writes drivers for signals that are not what it
+  thinks.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p>This chapter answers <em>"Configurare l'interfaccia e la comunicazione tra schede elettroniche proprietarie e l'ecosistema dell'automazione industriale (PLC, sensori, attuatori)"</em> &mdash; a line that appeared in the adverts this course was built from.</p>
+  <p>
+    This chapter answers <em>&ldquo;Configurare l&rsquo;interfaccia e la comunicazione tra schede
+    elettroniche proprietarie e l&rsquo;ecosistema dell&rsquo;automazione industriale (PLC, sensori,
+    attuatori)&rdquo;</em> &mdash; a line that appeared in the adverts this course was built from, and
+    the one that names <em>sensori e attuatori</em> explicitly.
+    <a href="56-what-a-plc-is.html">Chapter 56</a> covered the PLC; this is everything else at the end
+    of the cable.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="digital">24 V logic, PNP and NPN</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    On a circuit board, a digital signal is 3.3 V. In a factory, it is 24 V &mdash; because a longer
+    cable picks up interference, and a bigger voltage is harder to disturb.
+  </p>
+  <p>
+    There is also a choice nobody outside industry expects: a sensor can signal &ldquo;yes&rdquo; either
+    by connecting the wire to 24 V, or by connecting it to zero. Both are common, they are called PNP
+    and NPN, and wiring one where the other is expected means the input never works &mdash; or works
+    permanently.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>PNP (sourcing)</strong> &mdash; the sensor supplies 24 V to the input when active, and
+        the input has a pull-down. This is the European default and what you will meet most often
+        here.</li>
+    <li><strong>NPN (sinking)</strong> &mdash; the sensor pulls the input down to 0 V when active, and
+        the input has a pull-up. Common in Asian equipment.</li>
+    <li><strong>The standard that defines the thresholds</strong> is IEC 61131-2, which specifies input
+        types by voltage and current: broadly, below about 5 V is off, above about 15 V is on, and the
+        band between is undefined. A design that reads &ldquo;undefined&rdquo; as a level rather than
+        as a fault is a design that behaves differently on a long cable.</li>
+  </ul>
+  <p>
+    Between that 24 V world and your 3.3 V pin there is always conditioning: a divider with clamping,
+    or more usually an <strong>opto-isolator</strong>, which also breaks the ground connection &mdash;
+    important when the sensor's ground and the board's ground are metres apart and not at the same
+    potential. The firmware consequences are the ones from
+    <a href="63-reading-a-schematic.html">chapter 63</a>: the stage usually <strong>inverts</strong>,
+    it adds <strong>delay</strong> (an opto with a slow output can take hundreds of microseconds,
+    which matters if you are timing an encoder), and it means the level at your pin is not the level in
+    the field. Put that translation in exactly one named function.
+  </p>
+  <p>
+    Two habits worth building in. <strong>Debounce and filter every field input</strong> on a periodic
+    tick (<a href="31-gpio.html">chapter 31</a>), because contacts bounce and cables pick up noise from
+    contactors switching. And <strong>read back what you drive</strong> where it matters: an output with
+    a readback or a current sense tells you the coil is actually energised, which is the difference
+    between &ldquo;I commanded the valve&rdquo; and &ldquo;the valve moved&rdquo;.
+  </p>
+</div>
+
+<h2 id="analogue">Analogue: 4&ndash;20 mA, thermocouples, RTDs</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Measurements travel down factory cables as a current, not a voltage, because current is not
+    weakened by a long wire. The scale runs from 4 to 20 milliamps, and the fact that it starts at 4
+    rather than 0 is deliberate: a broken wire gives 0, which is outside the scale, so the receiver can
+    tell the difference between &ldquo;the value is zero&rdquo; and &ldquo;the sensor is gone&rdquo;.
+  </p>
+  <p>
+    Temperature is measured with two common devices, and neither gives you degrees directly: one gives
+    a very small voltage that depends on the temperature difference between its two ends, and the other
+    is simply a resistor whose value changes with temperature.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>4&ndash;20 mA</strong>, read across a precision shunt (typically 165 &Omega; for a
+        0&ndash;3.3 V span) and then through the ADC chain of
+        <a href="33-adc-and-the-analogue-chain.html">chapter 33</a>. The <strong>live zero</strong> is
+        the design lesson worth carrying everywhere: below about 3.6 mA is a broken wire or a failed
+        transmitter, above about 21 mA is a short, and both are <em>faults</em>, not readings. Some
+        transmitters also use a NAMUR convention to signal a self-detected fault by driving deliberately
+        out of range.</li>
+    <li><strong>0&ndash;10 V</strong> exists too, is cheaper, and is worse over distance because the
+        voltage drops along the cable and ground offsets add directly to the measurement.</li>
+    <li><strong>Thermocouples</strong> produce tens of microvolts per degree from the <em>difference</em>
+        between the measuring junction and the connection terminals, so you must measure the terminal
+        temperature separately and add it back: <strong>cold junction compensation</strong>. Forgetting
+        it gives a reading that is wrong by room temperature and drifts with the weather &mdash; a
+        classic and very confusing first bug. The type letter (K, J, T) selects a different non-linear
+        curve, implemented as a polynomial or a lookup table.</li>
+    <li><strong>RTDs (Pt100, Pt1000)</strong> are far more linear and more accurate. The catch is that
+        you are measuring a resistance through a cable whose own resistance is in series with it, which
+        is why <strong>three- and four-wire connections</strong> exist &mdash; they cancel the lead
+        resistance. A Pt100 read with two wires over twenty metres reads several degrees high,
+        consistently, and the mistake is invisible until somebody checks against a reference
+        thermometer.</li>
+    <li><strong>Dedicated front-end chips</strong> &mdash; MAX31865 for RTDs, MAX31856 for thermocouples
+        &mdash; do the excitation, amplification, linearisation and fault detection and hand you a
+        number over SPI. For a junior building a product, using one is usually the right engineering
+        choice and is not an admission of weakness.</li>
+  </ul>
+</div>
+
+<h2 id="actuators">Driving things, and what they do back to you</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A microcontroller pin can light an LED. It cannot run a valve, a relay or a motor &mdash; those need
+    far more current, and they push back. When you switch off anything with a coil in it, the coil
+    fights the change and produces a large voltage spike.
+  </p>
+  <p>
+    That spike is what resets boards, corrupts communications and produces faults that only happen
+    &ldquo;sometimes, when the machine is working&rdquo;.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>Between the pin and the load</strong> there is always a driver: a transistor, a MOSFET,
+        a dedicated high-side switch, or a relay. Intelligent drivers are worth asking for &mdash; they
+        report open load, overcurrent and over-temperature back to firmware, which turns
+        &ldquo;commanded&rdquo; into &ldquo;confirmed&rdquo;.</li>
+    <li><strong>Inductive kickback</strong> is handled by a flyback diode across a DC coil, or an RC
+        snubber and often a varistor on AC. It is the hardware team's job, and it is the firmware
+        engineer's job to recognise the symptom: resets, corrupted
+        <a href="46-uart.html">UART</a> bytes or ADC glitches that correlate exactly with a relay
+        switching (<a href="62-scope-and-logic-analyser.html">chapter 62</a> shows it on a
+        rail in one capture).</li>
+    <li><strong>Solid-state versus mechanical relays.</strong> Mechanical relays have finite contact
+        life &mdash; hundreds of thousands of operations &mdash; which makes rapid cycling a design
+        error rather than a nuisance. If your control law chatters a relay, the relay is the component
+        that dies, and adding hysteresis in firmware is what stops it.</li>
+    <li><strong>Valves, motors and heaters have physics.</strong> A valve takes hundreds of
+        milliseconds to travel; a large motor must not be restarted immediately after stopping; a
+        heater has thermal inertia that dominates any control loop. Minimum on and off times, and
+        interlocks against impossible combinations, belong in firmware because firmware is the only
+        place that knows the sequence.</li>
+    <li><strong>Safety is not firmware's to claim.</strong> An emergency stop is hardwired to remove
+        power through certified safety relays, and it is independent of your software by design
+        (<a href="65-misra-and-safety.html">chapter 65</a>). You must know it exists, know your
+        software cannot override it, and know that after an E-stop your state machine restarts from a
+        defined, safe state rather than resuming.</li>
+  </ul>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>sensor, actuator, 24v, industrial, logic, pnp, npn, sinking, sourcing, digital</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>A missing sensor reads as a valid value, and the machine acts on it.</strong>
+  </p>
+  <p>
+    A disconnected 0&ndash;10 V input on a floating pin reads whatever the pin drifts to, and 0 V is a
+    legitimate value in the range. A thermocouple whose wire has broken reads a number, not an error.
+    A two-wire Pt100 with a corroded terminal reads high but plausible. In every case the controller
+    receives a number that passes any sanity test written in terms of &ldquo;is it inside the
+    range&rdquo;, and acts on it &mdash; which means a cooling system can run the pump on the strength of
+    a temperature that no longer exists.
+  </p>
+  <p>
+    The discipline is to <strong>make the absence of a signal detectable, and then to detect it</strong>.
+    That is exactly why 4&ndash;20 mA has a live zero, and the same instinct generalises into four
+    checks that should exist for every field input in every industrial product:
+  </p>
+  <ul>
+    <li><strong>Out-of-range detection</strong> with explicit fault codes &mdash; below 3.6 mA is
+        <em>broken wire</em>, not <em>minimum value</em>.</li>
+    <li><strong>Rate-of-change checks</strong>: a liquid temperature that moves 40 degrees in one
+        sample is a sensor fault, because water has thermal mass.</li>
+    <li><strong>Cross-checks between sensors</strong> that must agree &mdash; an inlet and outlet
+        temperature that diverge impossibly, or a pump commanded on with no flow measured.</li>
+    <li><strong>Stuck-value detection</strong>: a reading that has not changed by even one count in ten
+        minutes on a live process is suspicious, and it is the only way to catch a sensor that has
+        frozen rather than failed.</li>
+  </ul>
+  <p>
+    And each detected fault needs a defined behaviour chosen deliberately &mdash; hold last value, go to
+    a safe default, shut down, or run degraded &mdash; because &ldquo;keep using the number&rdquo; is
+    what happens when nobody decides. That decision is a requirement, it should be written down, and
+    being the person who asks for it is what <em>configurare l&rsquo;interfaccia</em> actually means.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> A few euros of components on a breadboard cover most of this, and a
+  24 V supply is the only unusual item.</p>
+  <pre><code>1. Build a 4-20 mA receiver: a 165 ohm precision resistor to ground,
+   into an ADC input. Use a bench supply and a resistor decade, or a
+   cheap current-loop simulator, to sweep 4 to 20 mA and calibrate.
+   Then write the scaling with explicit fault bands: below 3.6 mA is
+   BROKEN_WIRE, above 21 mA is SHORT, and neither is a number.
+
+2. Read a Pt1000 with two wires and then with four, over a long
+   cable, and compare. Seeing the two-wire error appear as a
+   consistent offset -- and disappear with four wires -- makes lead
+   resistance real rather than theoretical.
+
+3. Make the cold-junction mistake on purpose with a thermocouple
+   module: read the raw voltage, convert without compensation, and
+   watch the answer be wrong by the room temperature. Then add the
+   board temperature back and watch it come right.
+
+4. Opto-isolate an input. Feed 24 V through an opto to a GPIO, and
+   look at the switching edge on a logic analyser: note the delay and
+   the inversion. Then write the one named function in the hardware
+   layer that turns "pin low" into "field signal active".
+
+5. Watch the kickback. Switch a 24 V relay coil WITHOUT a flyback
+   diode while a scope is on the 3.3 V rail -- from a safe distance,
+   and not on a board you love. Then add the diode and look again.
+   That comparison explains a whole category of "it only happens when
+   the machine runs" faults.
+
+6. Then implement the four plausibility checks on one real input:
+   range, rate of change, cross-check and stuck value. Decide what
+   each fault does. That code is exactly what an industrial product
+   ships with, and almost no portfolio project has it.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Field logic is 24 V</strong>, and PNP sourcing versus NPN sinking must be matched or the
+        input never works.</li>
+    <li><strong>The conditioning stage usually inverts and always delays.</strong> Put the translation
+        in one named function.</li>
+    <li><strong>Debounce and filter every field input</strong> on a periodic tick.</li>
+    <li><strong>4&ndash;20 mA has a live zero on purpose</strong>: below 3.6 mA is a broken wire, above
+        21 mA a short, and both are faults rather than readings.</li>
+    <li><strong>0&ndash;10 V is cheaper and worse over distance</strong>, because drop and ground offset
+        add to the measurement.</li>
+    <li><strong>Thermocouples need cold junction compensation</strong>, or the reading is wrong by room
+        temperature.</li>
+    <li><strong>Pt100 needs three or four wires</strong> over any distance, or lead resistance reads as
+        temperature.</li>
+    <li><strong>A dedicated front-end chip is usually the right choice</strong>, not a weakness.</li>
+    <li><strong>Never drive a coil from a pin</strong>, and expect the hardware to carry a flyback diode
+        or snubber.</li>
+    <li><strong>Relay chatter is a design error.</strong> Add hysteresis and minimum on and off
+        times.</li>
+    <li><strong>Read back what you drive</strong> where it matters, so commanded becomes
+        confirmed.</li>
+    <li><strong>Range, rate of change, cross-check, stuck value</strong> &mdash; four checks per input,
+        each with a decided behaviour on fault.</li>
+    <li><strong>The emergency stop is hardwired and independent of your software</strong>, and your
+        state machine restarts safely after it.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Come gestisce un sensore che si guasta?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Parto dal presupposto che un sensore guasto quasi sempre non d&agrave; un errore,
+    d&agrave; un numero plausibile: un ingresso 0-10 V staccato legge quello che capita, una
+    termocoppia con il filo rotto legge un valore, una Pt100 a due fili con un morsetto ossidato legge
+    alto ma credibile. Per questo il 4-20 mA ha lo zero vivo: sotto 3,6 mA &egrave; filo rotto, sopra
+    21 &egrave; corto, e nessuno dei due &egrave; una misura &mdash; &egrave; un guasto con il suo
+    codice. La stessa logica la applico a tutti gli ingressi con quattro controlli: fuori range;
+    velocit&agrave; di variazione, perch&eacute; un liquido che fa quaranta gradi in un campione
+    &egrave; il sensore, non il processo; incrocio fra sensori che devono essere coerenti, tipo pompa
+    comandata e portata a zero; e valore bloccato, perch&eacute; un sensore congelato non lo prende
+    nessun controllo di range. E poi la parte che secondo me &egrave; il vero lavoro: decidere cosa
+    fare per ogni guasto &mdash; tengo l&rsquo;ultimo valore, vado su un default sicuro, fermo
+    l&rsquo;impianto o vado in degradato. Se nessuno lo decide, il comportamento di default &egrave;
+    &lsquo;continuo a usare il numero sbagliato&rsquo;. Quello lo scrivo come requisito e lo chiedo,
+    perch&eacute; &egrave; esattamente quello che vuol dire configurare
+    l&rsquo;interfaccia.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

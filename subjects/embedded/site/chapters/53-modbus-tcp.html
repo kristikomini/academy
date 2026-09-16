@@ -18,25 +18,282 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 8 — Ethernet and the network <span>&rsaquo;</span> Chapter 53</p>
+<p class="crumbs">Part 8 &mdash; Ethernet and the network <span>&rsaquo;</span> Chapter 53</p>
 <h1>Modbus TCP</h1>
-<p class="lede">The same registers over a socket. The MBAP header, why the CRC disappears, and the concurrency the serial version never had.</p>
+<p class="lede">
+  The same register map as <a href="50-modbus-rtu.html">chapter 50</a>, carried over a socket. A new
+  seven-byte header, no CRC, no silent interval &mdash; and one genuinely new problem that the serial
+  version never had: several masters talking at once.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The usual upgrade path from chapter 50, and the point where a firmware engineer meets the IT network.</p>
+  <p>
+    <strong>Not named directly</strong>, and directly implied by the pairing the anchor advert does
+    name: <em>protocolli seriali e Ethernet</em> in the same line, next to
+    <em>l&rsquo;ecosistema dell&rsquo;automazione industriale</em>. Modbus TCP is the usual upgrade
+    path from Modbus RTU, and it is the point where a firmware engineer first has to talk to the
+    customer's IT department rather than to their electrician.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="mbap">What changes, and what does not</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The message itself is almost unchanged: which function, which register, how many. What changes is
+    the wrapping.
+  </p>
+  <p>
+    On a serial line, a message was recognised by silence around it and protected by a checksum. On a
+    network, the network already guarantees that data arrives complete and in order, so both of those
+    disappear. In their place is a short header saying how long the message is and which request it
+    belongs to.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <pre><code>Modbus RTU frame:   addr | func | data ...            | CRC16
+Modbus TCP frame:   MBAP header (7 bytes) | func | data ...
+
+MBAP:  transaction id (2)   echoed back by the server
+       protocol id    (2)   always 0 for Modbus
+       length         (2)   bytes that follow, including unit id
+       unit id        (1)   the old slave address, kept for gateways</code></pre>
+  <p>
+    Four differences that matter in practice:
+  </p>
+  <ul>
+    <li><strong>No CRC</strong>, because TCP has its own checksum and guarantees ordered delivery.
+        Computing one anyway is a common beginner error in a hand-written implementation.</li>
+    <li><strong>No 3.5-character silence.</strong> The length field delimits the message instead
+        &mdash; which means you must implement proper
+        <a href="47-framing.html">framing over a stream</a>: read until you have the seven-byte
+        header, then read exactly <em>length</em> more bytes. A TCP segment is not a message, and
+        assuming one read equals one request is the single most common defect in embedded Modbus TCP
+        servers.</li>
+    <li><strong>The transaction id</strong> lets a master have several requests outstanding and match
+        replies to them. A server must echo it back unchanged; a server that returns zero works with
+        simple masters and breaks with pipelined ones.</li>
+    <li><strong>The unit id</strong> survives as the old slave address, used when the device is a
+        gateway onto a serial segment. A native TCP device conventionally accepts any unit id, or
+        <code>0xFF</code>, and being strict here breaks interoperability for no benefit.</li>
+  </ul>
+  <p>
+    Everything else &mdash; the four register spaces, the function codes, the one-based documentation
+    against zero-based wire addressing, the exception responses with the high bit of the function code
+    set &mdash; is exactly chapter 50. Port 502 by convention.
+  </p>
+</div>
+
+<h2 id="concurrency">The genuinely new problem</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    On a serial line there was one master and it asked one question at a time. On a network, several
+    computers can connect to your device simultaneously &mdash; a PLC, a supervision system, an
+    engineer with a laptop, and a monitoring tool nobody told you about.
+  </p>
+  <p>
+    They can all read and write the same registers at the same time, and nothing in the protocol stops
+    them. That is now your problem to think about.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Three consequences, all of which belong in a design rather than in an accident:
+  </p>
+  <ul>
+    <li><strong>Atomicity across registers.</strong> A 32-bit value spans two registers, and a master
+        reading while another writes can see half of an old value and half of a new one. The
+        conventional answers are to build the response from a snapshot taken under a brief critical
+        section, and to require multi-register writes to be applied together &mdash; which is why
+        function 16 exists and why a device should reject a partial write of a paired value rather
+        than accept it.</li>
+    <li><strong>Who is allowed to command?</strong> Reading is harmless; writing a setpoint is not. A
+        practical policy is that one connection holds control &mdash; the first to claim it, or one
+        identified by address &mdash; while everybody else reads, with a timeout that releases control
+        when that client disappears. Deciding this is a requirement question for the customer, and
+        asking it at design time is the mark of somebody who has done it before.</li>
+    <li><strong>Connection budget.</strong> Every connection costs a PCB and buffers
+        (<a href="52-tcp-ip-in-64kb.html">chapter 52</a>). Decide the maximum, refuse politely beyond
+        it, and time out idle connections &mdash; because the SCADA system will crash without closing,
+        the laptop will be unplugged mid-session, and both leave sockets behind.</li>
+  </ul>
+  <p>
+    And the watchdog concept from <a href="58-talking-to-the-plc.html">chapter 58</a> becomes more
+    important, not less. TCP will happily hold a connection open for minutes after the peer has
+    vanished, so <strong>the absence of requests must be what triggers your safe state</strong>, not
+    the absence of a connection. A device that keeps running a pump because the socket is still open
+    is a device that has confused the transport with the application.
+  </p>
+</div>
+
+<h2 id="it">Meeting the IT department</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The moment a machine has a network cable, it is on somebody else's network, with their rules:
+    which address it gets, which ports are open, and whether it is allowed to talk to the internet at
+    all.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The questions to settle before installation, each of which is a firmware requirement:
+  </p>
+  <ul>
+    <li><strong>Static address or DHCP?</strong> Industrial devices are usually static, because a
+        device whose address changes is a device the PLC cannot find. If DHCP is used, what happens
+        when the lease cannot be renewed &mdash; keep the address and keep running, or stop? The
+        answer must be designed, and &ldquo;keep controlling the machine&rdquo; is almost always
+        right.</li>
+    <li><strong>How is the address configured?</strong> A device with no display needs a way: DIP
+        switches, a serial console, a discovery protocol, a default address documented in the manual.
+        Getting this wrong makes commissioning painful at scale.</li>
+    <li><strong>Which VLAN, and which ports?</strong> Port 502 must be open between the PLC and your
+        device, and often nothing else should be.</li>
+    <li><strong>Security, honestly.</strong> <strong>Modbus TCP has no authentication and no
+        encryption at all.</strong> Anybody who can reach port 502 can write any register, which means
+        anybody on that network can command the machine. The mitigation is network segmentation, and
+        that is the customer's decision &mdash; but saying it out loud is your responsibility, and in
+        Europe the Cyber Resilience Act is steadily turning it into a documented requirement rather
+        than an assumption. Never let a Modbus device be directly reachable from the internet.</li>
+  </ul>
+  <p>
+    A practical middle path used by many products: keep Modbus TCP for the plant network where the PLC
+    lives, and expose telemetry outward through <a href="54-mqtt-and-the-plant-network.html">MQTT</a>
+    over an authenticated, encrypted connection that the device itself initiates. That way the machine
+    network stays closed, and the firewall conversation becomes an outbound one, which IT will
+    accept.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>modbus, tcp, mbap, header, transaction, identifier, protocol, identifier, unit, id</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>One TCP read is treated as one Modbus request, so the device works with every tool you
+    test and fails against the customer's PLC.</strong>
+  </p>
+  <p>
+    TCP is a byte stream with no message boundaries. Your test tool sends one request per packet and
+    waits for the reply, so a naive server that parses whatever arrives in one <code>recv</code> works
+    perfectly. The customer's master pipelines: it writes two requests into one segment, or the
+    network splits a single request across two. Now the server reads a request and a half, parses the
+    first, throws away the remainder, and the master times out on every second transaction &mdash;
+    intermittently, under load, on their site only.
+  </p>
+  <p>
+    The fix is the framing discipline from <a href="47-framing.html">chapter 47</a>, applied to a
+    stream instead of to a serial line: <strong>accumulate into a per-connection buffer, and loop
+    &mdash; while you have at least seven bytes, read the length field; while you have a complete
+    message, handle it and consume exactly that many bytes; keep the remainder.</strong> That loop is
+    fifteen lines and it is the difference between a demo and a product. It also has to be
+    <em>per connection</em>, which is a real design consequence: each socket needs its own reassembly
+    buffer and its own state.
+  </p>
+  <p>
+    Two defensive habits that go with it. <strong>Validate the length field before trusting it</strong>
+    &mdash; a value larger than your buffer is either a bug at the other end or somebody probing you,
+    and the only correct response is to close the connection rather than to attempt the read. And
+    <strong>never let a malformed request desynchronise the stream</strong>: if the content is
+    nonsense but the framing is valid, answer with a Modbus exception and carry on; if the framing
+    itself is broken, close, because there is no way to find the next boundary in a stream that has no
+    delimiters.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> All of this can be done on a PC first, and should be &mdash; the board
+  adds nothing to the learning until the protocol is right.</p>
+  <pre><code>1. Talk to somebody else's server first. Run a free Modbus TCP
+   simulator (ModbusPal, diagslave) and query it with pymodbus in a
+   few lines of Python. Then capture the exchange in Wireshark, which
+   decodes Modbus natively, and read the MBAP header byte by byte.
+
+2. Write the server in C on your PC, not on the board: a socket, the
+   framing loop, and a small register map. Point pymodbus at it. When
+   it works, THEN port it to the device, where the only difference is
+   the API underneath.
+
+3. Break the framing on purpose. Write a client that sends two
+   requests in one send() call, and another that splits one request
+   across two send() calls with a delay between them. A correct server
+   handles both identically. This test is the whole trap, and it takes
+   ten minutes.
+
+4. Send a length field of 60000 and confirm your server closes the
+   connection instead of trying to read it.
+
+5. Open two clients at once and have one write a 32-bit setpoint
+   across two registers while the other reads it in a loop. Watch for
+   a torn value. Then fix it with a snapshot and confirm it is gone.
+
+6. Then decide and implement a control policy: one writer, others
+   read-only, control released after a timeout. Write down the
+   requirement in one sentence first -- that sentence is what you
+   would be asking the customer for.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Same registers, same function codes, new wrapper.</strong> The MBAP header replaces
+        silence and CRC.</li>
+    <li><strong>No CRC on TCP.</strong> Computing one is a beginner's tell.</li>
+    <li><strong>Echo the transaction id unchanged</strong>, or pipelined masters break.</li>
+    <li><strong>Accept any unit id</strong> on a native TCP device; it exists for gateways.</li>
+    <li><strong>One TCP read is not one request.</strong> Accumulate per connection and loop on the
+        length field.</li>
+    <li><strong>Validate the length before trusting it</strong>, and close the connection on broken
+        framing.</li>
+    <li><strong>Answer nonsense content with an exception</strong>, and never let it desynchronise the
+        stream.</li>
+    <li><strong>Several masters can now write at once.</strong> Decide who may command, and release
+        control on timeout.</li>
+    <li><strong>Build multi-register responses from a snapshot</strong>, so a 32-bit value cannot be
+        torn.</li>
+    <li><strong>Budget connections, refuse politely, and time out idle ones.</strong></li>
+    <li><strong>The absence of requests triggers the safe state</strong>, not the absence of a
+        socket.</li>
+    <li><strong>Modbus TCP has no authentication or encryption.</strong> Say so; segment the network;
+        never expose it to the internet.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Che differenza c&rsquo;&egrave; fra Modbus RTU e Modbus TCP?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Il messaggio &egrave; quasi lo stesso: stesse funzioni, stessi quattro spazi di
+    registri, stesso sfasamento fra indirizzi documentati a uno e indirizzi sul filo a zero. Cambia
+    l&rsquo;involucro: su TCP spariscono il CRC, perch&eacute; ci pensa il protocollo sotto, e il
+    silenzio di 3,5 caratteri, sostituito dall&rsquo;header MBAP con il campo lunghezza e il
+    transaction id, che va rimandato indietro identico se no i master che mandano richieste in
+    pipeline si rompono. E qui c&rsquo;&egrave; l&rsquo;errore pi&ugrave; comune, che ho visto
+    descritto ed &egrave; proprio un errore di framing: TCP &egrave; un flusso di byte, non di
+    messaggi, quindi una read non &egrave; una richiesta. Serve un buffer per connessione e un ciclo:
+    quando ho sette byte leggo la lunghezza, quando ho il messaggio completo lo servo e consumo
+    esattamente quei byte, il resto resta l&igrave;. Un server che non lo fa funziona con tutti gli
+    strumenti di prova, perch&eacute; mandano una richiesta per pacchetto, e fallisce dal cliente. La
+    cosa veramente nuova per&ograve; &egrave; la concorrenza: adesso possono collegarsi PLC,
+    supervisione e un portatile insieme, e scrivere tutti. Quindi decido chi ha il comando, con un
+    timeout che lo rilascia, costruisco le risposte multi-registro da uno snapshot per non dare valori
+    a 32 bit spezzati, e faccio scattare lo stato sicuro sull&rsquo;assenza di richieste, non
+    sull&rsquo;assenza di connessione &mdash; perch&eacute; TCP tiene aperta la socket anche quando
+    dall&rsquo;altra parte non c&rsquo;&egrave; pi&ugrave; nessuno. E dico sempre che Modbus TCP non ha
+    n&eacute; autenticazione n&eacute; cifratura: chi arriva alla porta 502 comanda la
+    macchina.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

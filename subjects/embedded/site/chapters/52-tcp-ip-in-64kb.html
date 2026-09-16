@@ -18,25 +18,288 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 8 — Ethernet and the network <span>&rsaquo;</span> Chapter 52</p>
+<p class="crumbs">Part 8 &mdash; Ethernet and the network <span>&rsaquo;</span> Chapter 52</p>
 <h1>TCP/IP in 64 KB: lwIP</h1>
-<p class="lede">A real stack on a part with no MMU. pbufs, zero-copy, the raw API against sockets, and what runs out first.</p>
+<p class="lede">
+  A complete TCP/IP stack on a part with no MMU, no processes and a few tens of kilobytes to spare.
+  What lwIP is, the three APIs it offers and why the choice matters, the pbuf model that makes
+  zero-copy possible, and what actually runs out first.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The advert says Ethernet and means a stack. lwIP is what is running in the overwhelming majority of these products.</p>
+  <p>
+    <strong>Not named in the advert</strong>, which says Ethernet and means a stack. lwIP is what is
+    running inside the overwhelming majority of these products: it is what CubeMX generates, what
+    FreeRTOS integrates with, and what nearly every STM32 Ethernet example is built on.
+    <a href="51-ethernet-on-an-mcu.html">Chapter 51</a> got frames into memory; this is everything
+    above them.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="what">What lwIP is, and the three APIs</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A TCP/IP stack is the software that turns raw frames into something useful: finding out who has
+    which address, splitting data into packets, putting them back in order, asking for the missing
+    ones again, and making it all look like a connection.
+  </p>
+  <p>
+    On a PC that work is inside the operating system. On a microcontroller there is no operating
+    system to put it in, so it is a library you compile into your program &mdash; and it has to be
+    small enough to fit beside everything else.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    lwIP &mdash; <em>lightweight IP</em> &mdash; gives you IPv4 and IPv6, ARP, ICMP, UDP, TCP, DHCP,
+    DNS, and optional applications such as an HTTP server, SNTP and MQTT, in something like 40 KB of
+    flash and tens of kilobytes of RAM depending on configuration. It offers <strong>three
+    APIs</strong>, and picking the wrong one is a decision people regret for the life of the project:
+  </p>
+  <ul>
+    <li><strong>The raw / callback API.</strong> No threads, no copies, no blocking: you register
+        callbacks and lwIP calls them from its own context. The smallest and fastest option, and the
+        only one usable bare-metal in a
+        <a href="38-superloop-or-rtos.html">superloop</a>. The cost is that your application logic
+        turns inside out into a state machine (<a href="07-state-machines-in-c.html">chapter 7</a>),
+        and that <strong>everything must run in the lwIP context</strong> &mdash; blocking inside a
+        callback stalls the whole stack.</li>
+    <li><strong>The netconn API.</strong> Sequential and blocking, needs an RTOS, and hides most of
+        the callback machinery while keeping lwIP's buffer model.</li>
+    <li><strong>The socket API.</strong> BSD sockets, familiar to anybody who has written network code
+        on a PC, needs an RTOS, and copies data across the boundary. Easiest to write and the most
+        expensive in RAM and cycles.</li>
+  </ul>
+  <p>
+    The rule that matters more than any of them: <strong>lwIP is not thread-safe except through the
+    netconn and socket APIs.</strong> Calling raw-API functions from another task is the single most
+    common way to produce a stack that works for hours and then corrupts itself. When you must, lwIP
+    provides <code>tcpip_callback</code> to run your function in the stack's own context, and the
+    <code>LWIP_TCPIP_CORE_LOCKING</code> option makes the locking explicit. A project with a
+    mysterious, rare Ethernet hang has usually violated this rule somewhere.
+  </p>
+</div>
+
+<h2 id="pbuf">pbufs, and why zero-copy is the whole point</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Copying data costs time and memory, and a small chip has little of either. So instead of copying a
+    packet from place to place as it moves up the layers, the stack passes around a small description
+    of where the data already is.
+  </p>
+  <p>
+    A single message can also be spread across several separate pieces of memory, chained together
+    &mdash; which is efficient, and which means your code cannot assume the data is one contiguous
+    block.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    A <strong>pbuf</strong> is lwIP's packet buffer: a small struct with a pointer, a length, a total
+    chain length, a reference count and a <code>next</code> pointer. Three kinds matter in practice:
+  </p>
+  <ul>
+    <li><strong><code>PBUF_POOL</code></strong> &mdash; from a fixed pool, the usual choice for
+        received packets. Fixed-size, so a large frame becomes a <em>chain</em> of them.</li>
+    <li><strong><code>PBUF_RAM</code></strong> &mdash; a single allocation, contiguous, used for
+        outgoing data you build yourself.</li>
+    <li><strong><code>PBUF_REF</code> and <code>PBUF_ROM</code></strong> &mdash; a pointer to data the
+        stack does not own, which is how you send a constant from flash without copying it at
+        all.</li>
+  </ul>
+  <p>
+    Three consequences to design around, all of which are where real bugs come from:
+  </p>
+  <ul>
+    <li><strong>Never assume a pbuf is contiguous.</strong> Walk the chain, or use
+        <code>pbuf_copy_partial</code> into your own buffer when you genuinely need one block. A
+        protocol parser that reads a header by casting a struct onto <code>p-&gt;payload</code> works
+        for small packets and fails the day a message spans two pbufs
+        (<a href="09-structs-and-alignment.html">chapter 9</a> has the alignment half of the same
+        argument).</li>
+    <li><strong>Reference counting is ownership.</strong> <code>pbuf_free</code> when you are done,
+        <code>pbuf_ref</code> if you keep it. A leaked pbuf is a pool that empties over hours, giving
+        a device that works all day and stops overnight &mdash; and the leak is usually on an error
+        path nobody tested.</li>
+    <li><strong>Return them promptly.</strong> Holding pbufs while the application thinks starves the
+        receive ring from <a href="51-ethernet-on-an-mcu.html">chapter 51</a>.</li>
+  </ul>
+  <p>
+    On the TCP side, the two functions worth understanding properly are
+    <code>tcp_write</code> &mdash; which queues data, possibly without copying, so the buffer you
+    passed must stay valid until the data is acknowledged unless you asked for a copy &mdash; and
+    <code>tcp_recved</code>, which tells the stack you have consumed data and reopens the receive
+    window. Forgetting <code>tcp_recved</code> gives a connection that transfers a few kilobytes and
+    then stalls forever, which is a genuinely confusing symptom the first time.
+  </p>
+</div>
+
+<h2 id="limits">What runs out first</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A stack on a small chip does not fail by being slow. It fails by running out of memory, and when
+    it does the symptoms look like a network problem rather than a memory problem.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Everything in lwIP is statically sized in <code>lwipopts.h</code>, and the numbers people leave at
+    their defaults are the ones that bite:
+  </p>
+  <ul>
+    <li><strong><code>PBUF_POOL_SIZE</code> and <code>MEM_SIZE</code></strong> &mdash; the receive pool
+        and the general heap. Too small and packets are dropped under burst traffic, which TCP hides
+        by retransmitting and UDP does not hide at all.</li>
+    <li><strong><code>MEMP_NUM_TCP_PCB</code></strong> &mdash; how many simultaneous connections exist.
+        A device that accepts a sixth connection when five were configured simply refuses it, and the
+        customer reports that the machine &ldquo;stops answering after a while&rdquo;. Connections in
+        <code>TIME_WAIT</code> count too, which is why a client that reconnects rapidly exhausts a
+        server sized by counting only active links.</li>
+    <li><strong><code>TCP_SND_BUF</code> and <code>TCP_WND</code></strong> &mdash; throughput is
+        bounded by window divided by round-trip time, so a 2 KB window on a 1 ms network caps you
+        around 2 MB/s regardless of the link speed. This is the answer to &ldquo;why is our 100 Mbit
+        device slow&rdquo; nine times out of ten.</li>
+  </ul>
+  <p>
+    Two habits make all of it visible instead of mysterious. Turn on <strong><code>LWIP_STATS</code></strong>
+    and print the counters &mdash; dropped packets, memory errors, pool exhaustion, per protocol. They
+    are free, they are already there, and they turn a vague complaint into a number. And
+    <strong>decide what the application does when the network is gone</strong>: an industrial device
+    must keep controlling its machine while its Ethernet is unplugged, so no control path may ever
+    block on a socket (<a href="58-talking-to-the-plc.html">chapter 58</a> makes the same point about
+    a field bus). If pulling the cable disturbs the machine, the architecture is wrong regardless of
+    how good the stack is.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>lwip, tcp, ip, udp, arp, icmp, dhcp, dns, pbuf, zero</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>Everything works, and after nine days the device stops answering &mdash; because a pbuf
+    leaks on a path that only executes when something goes wrong.</strong>
+  </p>
+  <p>
+    The shape is always the same. The happy path frees its pbufs correctly, because it is the path you
+    ran ten thousand times. The error path &mdash; a malformed packet, a connection reset mid-message,
+    a length field that does not match, an allocation that failed &mdash; returns early and forgets.
+    Each occurrence costs one buffer from a fixed pool. On a quiet network that is once a day, so the
+    device runs for a week and then refuses connections, and the log says nothing because nothing
+    crashed.
+  </p>
+  <p>
+    Three defences worth building in from the start. <strong>Print the lwIP stats periodically in
+    development</strong> &mdash; a pool whose free count trends downwards over hours is a leak, visible
+    long before the failure. <strong>Give every callback exactly one exit point</strong> that frees,
+    or use a small wrapper that frees on return, so the error path cannot forget what the happy path
+    remembers. And <strong>test the error paths deliberately</strong>: send truncated packets, reset
+    connections mid-transfer, open more connections than configured, and hold one open without
+    reading. Those four tests take an afternoon with a Python script and find this entire class of
+    defect (<a href="64-testing-firmware.html">chapter 64</a>).
+  </p>
+  <p>
+    The same reasoning applies to the connection table: a device that never closes its own sockets
+    accumulates state until it has none left. <strong>An embedded server should have a defined,
+    bounded, aggressive policy for idle connections</strong> &mdash; a timeout that closes them &mdash;
+    because it is not a web server with gigabytes of RAM and it will be talking to a client that
+    crashes, unplugs and reboots without saying goodbye.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> Most of this runs on a PC: lwIP compiles for Linux and Windows with a
+  tap or pcap interface, which is much faster to iterate on than a board.</p>
+  <pre><code>1. Build lwIP for the host first, with its unix port. You get the
+   real stack, on a real network interface, with gdb and sanitisers
+   available -- and no flash cycle. This is the single best way to
+   learn it.
+
+2. Write a UDP echo server with the RAW API, then the same thing with
+   sockets, and compare the two source files. The difference IS the
+   trade this chapter is about: one is a state machine, the other
+   reads top to bottom and costs RAM.
+
+3. Handle a chained pbuf deliberately. Send a 2000-byte UDP datagram
+   so it fragments and arrives as a chain, then write a parser that
+   walks p->next correctly. Then write the naive version that casts a
+   struct onto p->payload and watch it read nonsense.
+
+4. Leak a pbuf on purpose. Add an error path that returns without
+   pbuf_free, enable LWIP_STATS, and print the pool free count every
+   second while sending malformed packets. Watch it trend down. That
+   graph is what you will look for in a real product.
+
+5. Forget tcp_recved in a TCP receive callback and watch a transfer
+   stall after a few kilobytes. Then add it back. Five minutes, and it
+   removes a confusing symptom from your future.
+
+6. On the board: pull the Ethernet cable while the device is
+   controlling something, and confirm the control loop keeps its
+   timing and the machine stays safe. If it does not, that is the
+   finding -- and it matters more than any throughput number.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Three APIs: raw callbacks, netconn, sockets.</strong> Raw is the only bare-metal
+        option; sockets cost RAM and copies.</li>
+    <li><strong>lwIP is not thread-safe outside netconn and sockets.</strong> Use
+        <code>tcpip_callback</code> to reach the stack from another task.</li>
+    <li><strong>Never block inside a raw-API callback.</strong> It stalls the whole stack.</li>
+    <li><strong>A pbuf may be a chain.</strong> Never cast a header struct onto
+        <code>p-&gt;payload</code> and assume contiguity.</li>
+    <li><strong>Reference counting is ownership</strong>: free what you finish, ref what you keep, and
+        return buffers promptly.</li>
+    <li><strong>Call <code>tcp_recved</code></strong>, or the window closes and the connection
+        stalls.</li>
+    <li><strong>Data passed to <code>tcp_write</code> without a copy must stay valid</strong> until it
+        is acknowledged.</li>
+    <li><strong>Everything is statically sized in <code>lwipopts.h</code></strong>, and the defaults
+        are for examples, not products.</li>
+    <li><strong>Throughput is window over round-trip time</strong>, not link speed.</li>
+    <li><strong>Count <code>TIME_WAIT</code> in your connection budget</strong>, and time out idle
+        connections aggressively.</li>
+    <li><strong>Turn on <code>LWIP_STATS</code></strong> and watch the pool free count for a downward
+        trend.</li>
+    <li><strong>No control path may block on the network.</strong> Unplugging the cable must not
+        disturb the machine.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Ha usato lwIP? Che problemi ha incontrato?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;La prima decisione &egrave; quale API: raw a callback, che &egrave; l&rsquo;unica
+    utilizzabile bare-metal e costa meno RAM ma ti obbliga a rovesciare la logica in una macchina a
+    stati; netconn; o socket BSD, comodissime ma con RTOS e con copie. E la regola che secondo me
+    causa pi&ugrave; danni &egrave; che lwIP non &egrave; thread-safe fuori da netconn e socket: se
+    chiami funzioni della raw API da un altro task, il sistema funziona per ore e poi si corrompe.
+    Quando devo, uso tcpip_callback per eseguire nel contesto dello stack. Poi i pbuf: non sono
+    contigui, sono catene, quindi un parser che fa il cast di una struct su p->payload va bene sui
+    pacchetti piccoli e legge spazzatura il giorno che il messaggio sta su due buffer. E il
+    conteggio dei riferimenti &egrave; propriet&agrave;: il bug classico &egrave; il pbuf che perde su
+    un percorso di errore &mdash; pacchetto malformato, connessione resettata a met&agrave; &mdash;
+    quello che non hai mai provato. Una volta al giorno, e dopo nove giorni il dispositivo non
+    risponde pi&ugrave;, senza nessun crash e senza niente nei log. Per questo accendo LWIP_STATS e
+    guardo il contatore dei buffer liberi: se cala nel tempo, sto perdendo. E in un prodotto
+    industriale nessun percorso di controllo deve bloccarsi sulla rete: stacco il cavo e la macchina
+    deve continuare a funzionare.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

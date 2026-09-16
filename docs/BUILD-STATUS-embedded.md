@@ -77,8 +77,8 @@ Three consequences, all deliberate and all visible on the site itself:
 | Thing | Count | Target |
 |---|---|---|
 | Site chapters (files + manifest entries) | 75 | 75 |
-| Chapters actually written | **49** | 75 |
-| Chapters that are honest placeholders | **26** | 0 |
+| Chapters actually written | **56** | 75 |
+| Chapters that are honest placeholders | **19** | 0 |
 | Quiz questions | 468 | ~750 |
 | Chapters with questions | 49 | 75 |
 | Glossary terms | 0 | ~130 |
@@ -88,10 +88,17 @@ A placeholder here is labelled as one *on its own page* — it says it is not wr
 its planned coverage, and does not pad itself out with filler that would read as content.
 That is the generator's design (`tools/gen-chapters.js`) and it should stay that way.
 
+**Written chapters and chapters with questions have deliberately diverged.** From 2026-09-16
+the prose is being finished first and the question bank is being left behind on purpose, at
+Kristi's instruction: chapters 51–55, 57 and 59 have full prose, Try-its, golden rules and
+Italian panels but **no quiz questions yet**. The doctor does not mind — it measures both
+independently — but do not read `Chapters with questions` as a bug. The bank, the glossary,
+the Italian panels and the viva deck are all scheduled after the last chapter is written.
+
 ### Which chapters are written
 
 Chosen as the spine of the course rather than as a contiguous block: the ones an interviewer is
-most likely to reach for, plus the two ends of the arc. **Parts 4, 5, 6, 7 and 10 are now complete** —
+most likely to reach for, plus the two ends of the arc. **Parts 4, 5, 6, 7, 8, 9 and 10 are now complete** —
 every chapter in them has prose, a Try-it, golden rules, an Italian panel and questions. Parts 6
 and 7 came first because an interviewer reaches for an RTOS and a protocol long before reaching
 for `constexpr`; Parts 4 and 5 followed because they are the expansion of the advert's own
@@ -136,8 +143,15 @@ technical line is *debug e validazione*, and because three of its chapters carry
 | 49a | ISO-TP: more than eight bytes over CAN | The layer a candidate who says "CAN and UDS" is expected to be able to name |
 | 49b | UDS: the diagnostic language of the ECU | The one line of the automotive advert nothing else in this course answers |
 | 50 | Modbus RTU | The most probable protocol between this board and that PLC |
+| 51 | Ethernet on a microcontroller | The advert's *Ethernet* line: MAC, PHY, RMII and the descriptor ring |
+| 52 | TCP/IP in 64 KB: lwIP | What the advert means by Ethernet in practice, and the pbuf that leaks on an error path |
+| 53 | Modbus TCP | The upgrade path from chapter 50, and where a TCP read is not a request |
+| 54 | MQTT and the plant network | How a machine's data gets to the office without opening a port |
+| 55 | Industrial Ethernet: PROFINET, EtherCAT, EtherNet/IP, OPC UA | Four names listed together in adverts that are not alternatives |
 | 56 | What a PLC is, for a firmware engineer | The seam the anchor advert is really hiring for |
+| 57 | Sensors, actuators and the signals between them | The advert's *sensori e attuatori* line: 24 V, PNP/NPN, 4–20 mA, kickback |
 | 58 | Talking to the PLC: who is master, and what happens when the link drops | The integration design conversation, which is the advert's word *configurare* |
+| 59 | The product behind this advert: liquid cooling | The evening of preparation that changes an interview, and the portfolio project to build |
 | 60 | The debugger: SWD, breakpoints, and why they lie | The advert's *debug e validazione* line, and the instrument that cannot see timing bugs |
 | 61 | Printf, tracing and the cost of looking | The instinct everyone brings from the PC, and the one that hides real-time bugs best |
 | 62 | The oscilloscope and the logic analyser | *Collaborare con il team hardware*, at the bench, with an instrument between you |
@@ -175,10 +189,13 @@ a block diagram to a working peripheral to a protocol on the wire without meetin
 the anchor advert's two explicit technical lines — *collaborare con il team hardware per il debug
 e la validazione*. Every chapter carrying a `req` from either advert is now written.
 
-**Remaining, in writing order: Part 9 (57, 59), Part 8 (51–55), Parts 1 and 2 (01, 02, 04, 05,
-07–10, 12–14), Part 11 (68, 69), then Part 3 (15–20).** Part 3 is last on purpose: C++ on a
-microcontroller is the least-asked topic in this market, and chapter 15 already frames the
-trade.
+**Parts 8 and 9 were completed on 2026-09-16** — 51, 52, 53, 54, 55, 57 and 59 — which closes
+the whole protocol and industrial arc: Parts 6 to 10 are now continuous prose from an RTOS
+through serial, Ethernet and the plant floor to debugging and quality.
+
+**Remaining, in writing order: Parts 1 and 2 (01, 02, 04, 05, 07–10, 12–14), Part 11 (68, 69),
+then Part 3 (15–20).** Part 3 is last on purpose: C++ on a microcontroller is the least-asked
+topic in this market, and chapter 15 already frames the trade.
 
 ---
 
@@ -270,12 +287,14 @@ is the contract rather than the convention.
 
 ## Known gaps, in the order they should be closed
 
-1. **The prose.** Twenty-six labelled placeholders. Parts 4, 5, 6, 7 and 10 are complete, as
-   are the advert-named chapters (35, 36, 66, 67, plus 49a/49b/64a), so **no chapter carrying a
-   `req` is a placeholder any more**. Remaining order: Part 9 (57, 59), Part 8 (51–55), Parts 1
+1. **The prose.** Nineteen labelled placeholders, all of them in Parts 1, 2, 3 and 11. Parts 4
+   to 10 are complete and no chapter carrying a `req` is a placeholder. Remaining order: Parts 1
    and 2, Part 11 (68, 69), then Part 3.
-2. **The question bank.** Questions exist only for written chapters, because a question
-   written against a placeholder is a question written against nothing.
+2. **The question bank.** Questions exist for 49 of the 56 written chapters. Seven — 51–55, 57
+   and 59 — were written without questions on purpose, because the decision on 2026-09-16 was to
+   finish all the prose first and then do the bank, the glossary, the Italian panels and the viva
+   in one pass. A question written against a placeholder is still a question written against
+   nothing, so the remaining nineteen come last.
 3. **`glossary.js` is categories only.** The contract and process vocabulary (RAL, CCNL,
    *colloquio conoscitivo*, *presa in carico*) is identical across subjects and could be
    lifted — but its `where` fields point at another subject's chapter numbers, and a
