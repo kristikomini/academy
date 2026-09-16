@@ -77,10 +77,10 @@ Three consequences, all deliberate and all visible on the site itself:
 | Thing | Count | Target |
 |---|---|---|
 | Site chapters (files + manifest entries) | 75 | 75 |
-| Chapters actually written | **43** | 75 |
-| Chapters that are honest placeholders | **32** | 0 |
-| Quiz questions | 407 | ~750 |
-| Chapters with questions | 43 | 75 |
+| Chapters actually written | **49** | 75 |
+| Chapters that are honest placeholders | **26** | 0 |
+| Quiz questions | 468 | ~750 |
+| Chapters with questions | 49 | 75 |
 | Glossary terms | 0 | ~130 |
 | Italian chapter panels | 0 | ~30 |
 
@@ -91,11 +91,12 @@ That is the generator's design (`tools/gen-chapters.js`) and it should stay that
 ### Which chapters are written
 
 Chosen as the spine of the course rather than as a contiguous block: the ones an interviewer is
-most likely to reach for, plus the two ends of the arc. **Parts 4, 5, 6 and 7 are now complete** —
+most likely to reach for, plus the two ends of the arc. **Parts 4, 5, 6, 7 and 10 are now complete** —
 every chapter in them has prose, a Try-it, golden rules, an Italian panel and questions. Parts 6
 and 7 came first because an interviewer reaches for an RTOS and a protocol long before reaching
 for `constexpr`; Parts 4 and 5 followed because they are the expansion of the advert's own
-*ambiente di sviluppo STM32*.
+*ambiente di sviluppo STM32*; Part 10 followed those because the advert's second explicit
+technical line is *debug e validazione*, and because three of its chapters carry a `req`.
 
 | Ch | Title | Why this one first |
 |---|---|---|
@@ -137,7 +138,13 @@ for `constexpr`; Parts 4 and 5 followed because they are the expansion of the ad
 | 50 | Modbus RTU | The most probable protocol between this board and that PLC |
 | 56 | What a PLC is, for a firmware engineer | The seam the anchor advert is really hiring for |
 | 58 | Talking to the PLC: who is master, and what happens when the link drops | The integration design conversation, which is the advert's word *configurare* |
+| 60 | The debugger: SWD, breakpoints, and why they lie | The advert's *debug e validazione* line, and the instrument that cannot see timing bugs |
+| 61 | Printf, tracing and the cost of looking | The instinct everyone brings from the PC, and the one that hides real-time bugs best |
+| 62 | The oscilloscope and the logic analyser | *Collaborare con il team hardware*, at the bench, with an instrument between you |
+| 63 | Reading a schematic | The shared document: without it you can only report symptoms |
+| 64 | Testing firmware: off-target unit tests and HIL | What makes CI possible at all, and the mock that shares the driver's misunderstanding |
 | 64a | The automotive V-cycle: requirements, architecture, integration | The *build e integrazione* job, which is a different seat from the rest of this course |
+| 65 | MISRA C, static analysis and functional safety | Regional safety listings, and knowing what MISRA is *for* rather than its rule numbers |
 | 66 | Git, code review and the release | *Dimestichezza con Git* is the modest half; knowing what is in the field is the half that separates candidates |
 | 67 | Technical English | Both adverts ask for it, one of them as *fluente*, and it is tested by switching language mid-interview |
 | 70 | The CV and the ATS | Where the hardware boundary becomes a sentence you can defend |
@@ -164,10 +171,14 @@ expansion in Parts 1 to 3.
 which closes the STM32 half of the anchor advert. With Parts 4 to 7 done, a reader can go from
 a block diagram to a working peripheral to a protocol on the wire without meeting a placeholder.
 
-**Remaining, in writing order: Part 10 (60–65), Part 9 (57, 59), Part 8 (51–55), Parts 1 and 2
-(01, 02, 04, 05, 07–10, 12–14), Part 11 (68, 69), then Part 3 (15–20).** Part 3 is last on
-purpose: C++ on a microcontroller is the least-asked topic in this market, and chapter 15
-already frames the trade.
+**Part 10 was completed on 2026-09-16** (60, 61, 62, 63, 64, 65), which closes the second of
+the anchor advert's two explicit technical lines — *collaborare con il team hardware per il debug
+e la validazione*. Every chapter carrying a `req` from either advert is now written.
+
+**Remaining, in writing order: Part 9 (57, 59), Part 8 (51–55), Parts 1 and 2 (01, 02, 04, 05,
+07–10, 12–14), Part 11 (68, 69), then Part 3 (15–20).** Part 3 is last on purpose: C++ on a
+microcontroller is the least-asked topic in this market, and chapter 15 already frames the
+trade.
 
 ---
 
@@ -259,9 +270,10 @@ is the contract rather than the convention.
 
 ## Known gaps, in the order they should be closed
 
-1. **The prose.** Thirty-two labelled placeholders. Parts 4, 5, 6 and 7 are complete, as are
-   the advert-named chapters (35, 36, 66, 67, plus 49a/49b/64a). Remaining order: Part 10
-   (60–65), Part 9 (57, 59), Part 8 (51–55), Parts 1 and 2, Part 11 (68, 69), then Part 3.
+1. **The prose.** Twenty-six labelled placeholders. Parts 4, 5, 6, 7 and 10 are complete, as
+   are the advert-named chapters (35, 36, 66, 67, plus 49a/49b/64a), so **no chapter carrying a
+   `req` is a placeholder any more**. Remaining order: Part 9 (57, 59), Part 8 (51–55), Parts 1
+   and 2, Part 11 (68, 69), then Part 3.
 2. **The question bank.** Questions exist only for written chapters, because a question
    written against a placeholder is a question written against nothing.
 3. **`glossary.js` is categories only.** The contract and process vocabulary (RAL, CCNL,

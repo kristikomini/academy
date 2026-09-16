@@ -18,25 +18,268 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 10 — Debugging, testing and quality <span>&rsaquo;</span> Chapter 63</p>
+<p class="crumbs">Part 10 &mdash; Debugging, testing and quality <span>&rsaquo;</span> Chapter 63</p>
 <h1>Reading a schematic</h1>
-<p class="lede">Enough to ask the hardware engineer the right question: nets, power rails, pull-ups, level shifters, and finding your pin on the sheet.</p>
+<p class="lede">
+  Not to design one &mdash; to find your pin on it, follow the net to whatever is really on the other
+  end, and ask the hardware engineer a question that saves both of you a day. Nets, rails, pull-ups,
+  level shifters, and the six things firmware should always check before writing a driver.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p>This chapter answers <em>"Collaborare con il team hardware per il debug e la validazione dei sistemi"</em> &mdash; a line that appeared in the adverts this course was built from.</p>
+  <p>
+    This chapter answers <em>&ldquo;Collaborare con il team hardware per il debug e la validazione dei
+    sistemi&rdquo;</em> &mdash; a line that appeared in the adverts this course was built from.
+    Collaboration here has a concrete meaning: the schematic is the shared document, and an engineer
+    who cannot read it can only report symptoms.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="navigation">Finding your way around the sheets</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A schematic is not a picture of the board. It is a diagram of what is connected to what, arranged
+    for reading rather than for building: the power supply on one sheet, the processor on another,
+    the connectors on a third.
+  </p>
+  <p>
+    Lines are wires. Where two lines cross without a dot they are not connected; with a dot, they are.
+    And a wire does not have to be drawn all the way: if the same name appears in two places, it is
+    the same wire. That last convention is what makes a big schematic readable, and it is the one that
+    confuses everybody at first.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>Net labels are connections.</strong> <code>SENSOR_SCL</code> on sheet 2 and
+        <code>SENSOR_SCL</code> on sheet 5 are one net. Searching the PDF for a net name is how you
+        follow a signal, and it is faster than tracing lines.</li>
+    <li><strong>Reference designators</strong>: R for resistor, C for capacitor, U for integrated
+        circuit, Q for transistor, D for diode, J for connector, TP for test point, FB for ferrite
+        bead. <code>R47</code> on the schematic is <code>R47</code> in the bill of materials and
+        <code>R47</code> silkscreened on the board, which is how you get from &ldquo;this pull-up is
+        wrong&rdquo; to a component you can physically point at.</li>
+    <li><strong>Power symbols</strong> are nets too: every <code>3V3</code> symbol on every sheet is
+        one net. Separate symbols such as <code>VDDA</code>, <code>5V</code>,
+        <code>24V</code>, <code>GND</code>, <code>AGND</code> are separate nets, and where two grounds
+        meet &mdash; a single point, a ferrite, a zero-ohm link &mdash; is often exactly what you need
+        to know when a measurement is noisy.</li>
+    <li><strong>Off-sheet connectors and hierarchical blocks</strong> carry signals between sheets;
+        the sheet index at the front tells you which block is where.</li>
+    <li><strong>Test points</strong> are the hardware team telling you where to probe. Learn where
+        yours are before you need them (<a href="62-scope-and-logic-analyser.html">chapter 62</a>).</li>
+    <li><strong>DNP / NF</strong> &mdash; do not populate &mdash; marks a component drawn but not
+        fitted. This is a classic source of &ldquo;the schematic says there is a pull-up&rdquo; when
+        there is not one on the board in front of you, and the assembly drawing or BOM is the
+        authority, not the schematic.</li>
+  </ul>
+</div>
+
+<h2 id="checklist">The six things to check before writing a driver</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Before writing code for a chip on the board, there are a handful of questions the schematic
+    answers in two minutes, and each of them can waste a day if you guess instead.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ol>
+    <li><strong>Which pin, and which alternate function?</strong> Find the net from the peripheral to
+        the part, then check the pin supports that function in the datasheet's alternate-function
+        table (<a href="31-gpio.html">chapter 31</a>). A board designed without checking that table
+        is a board that needs bit-banging or a rework.</li>
+    <li><strong>What voltage is on that net?</strong> A 5 V device on a 3.3 V pin needs level
+        shifting, and a 3.3 V output into a 5 V input may not reach the input's logic-high threshold
+        even though nothing is damaged &mdash; the fault then looks intermittent and
+        temperature-dependent.</li>
+    <li><strong>Is it pulled up, pulled down, or floating?</strong> For I&sup2;C, what value are the
+        pull-ups &mdash; because that value sets the rise time and therefore the maximum bus speed. For
+        an input, does it have a defined level before your firmware configures the pin
+        (<a href="25-clocks-and-plls.html">during the window between reset and init</a>)?</li>
+    <li><strong>Is the signal inverted?</strong> An opto-isolator or a transistor stage usually
+        inverts, so &ldquo;active low&rdquo; in the field is a 1 at the pin. Read it off the schematic
+        once and put it in one named function in the hardware layer
+        (<a href="35-firmware-architecture.html">chapter 35</a>).</li>
+    <li><strong>What is the address, and are there address-select pins?</strong> An I&sup2;C device's
+        address depends on how its A0/A1 pins are strapped, and the schematic is where that is
+        decided. Half of &ldquo;the sensor does not answer&rdquo; is a wrong address.</li>
+    <li><strong>What does this chip need in order to start?</strong> A reset line held by the MCU, an
+        enable pin, a power sequence, a crystal, a boot-mode strap. Many devices need a minimum delay
+        after power-up before they answer, and that delay belongs in your init code.</li>
+  </ol>
+  <p>
+    Two more that are worth checking on any board with actuators, because they are safety-relevant
+    rather than merely annoying: <strong>what happens to every output between power-on and your
+    configuration code</strong> (pins are inputs then, so anything that must stay off needs a resistor
+    on the board), and <strong>what the board does when the MCU is in reset or the watchdog fires</strong>.
+  </p>
+</div>
+
+<h2 id="conversation">Talking to the hardware engineer</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The most useful thing you can bring to a hardware colleague is a specific observation and a
+    specific question, rather than a complaint. &ldquo;It does not work&rdquo; starts an argument.
+    &ldquo;This line is at 1.8 V when it should be at 3.3, and here is the capture&rdquo; starts an
+    investigation.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    What firmware can usefully contribute to a schematic review, in descending order of value &mdash;
+    and being invited to those reviews is a career step, because it means the board improves before
+    it is built:
+  </p>
+  <ul>
+    <li><strong>Pin-function conflicts</strong>, found in the alternate-function table. This is the
+        single most valuable check, and it is pure firmware knowledge.</li>
+    <li><strong>Reset-state hazards</strong>: outputs that must be safe before firmware runs.</li>
+    <li><strong>Debug access</strong>: are SWD pins available on a header, is there a serial port for
+        diagnostics, are there test points on the buses you will have to probe, and is there a
+        recovery path such as BOOT0 (<a href="34-flash-and-bootloader.html">chapter 34</a>)? Asking for
+        these costs nothing before layout and is impossible after.</li>
+    <li><strong>EXTI collisions</strong>: two interrupt inputs on the same pin number of different
+        ports cannot both work.</li>
+    <li><strong>Spare pins brought out</strong>, ideally two, for the instrumentation in
+        <a href="61-printf-and-tracing.html">chapter 61</a>. A spare pin on a test point has paid for
+        itself the first time you need to time an ISR on a customer's machine.</li>
+    <li><strong>Sensor front ends</strong>: filtering and impedance suited to the sampling you intend
+        (<a href="33-adc-and-the-analogue-chain.html">chapter 33</a>).</li>
+  </ul>
+  <p>
+    And the vocabulary that makes the conversation efficient, which is also
+    <a href="67-technical-english.html">chapter 67</a> in practice: <em>net</em>, <em>rail</em>,
+    <em>pull-up</em>, <em>open-drain</em>, <em>to assert</em> and <em>de-assert</em>, <em>rise
+    time</em>, <em>decoupling</em>, <em>ferrite</em>, <em>flyback diode</em>, <em>opto</em>,
+    <em>strap</em>, <em>rework</em>, <em>DNP</em>, <em>test point</em>. Using the right word for the
+    thing is most of being taken seriously across the discipline boundary.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>schematic, netlist, symbol, reference, designator, r, c, u, q, net</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>The schematic is not the board &mdash; and the difference is where two days go.</strong>
+  </p>
+  <p>
+    The schematic says what was intended. The board in your hand is a particular revision, possibly
+    with components not fitted, possibly with a bodge wire somebody added last month and did not
+    document, possibly rev B while the PDF is rev C. Firmware written against the drawing then fails
+    on the hardware for reasons that look like software bugs.
+  </p>
+  <p>
+    Three habits that cost minutes. <strong>Check the revision</strong> printed on the board against
+    the one on the schematic, every time you pick up a different unit. <strong>Look at the
+    board</strong> for missing components and bodge wires before trusting a net &mdash; DNP positions
+    are visibly empty. And <strong>measure the net</strong> when behaviour contradicts the drawing: a
+    multimeter in continuity mode settles &ldquo;is this pin actually connected to that chip&rdquo; in
+    ten seconds, and it is the measurement most firmware engineers never think to make.
+  </p>
+  <p>
+    The related trap, which is worse because it produces confident wrong conclusions: <strong>two
+    boards that are not the same.</strong> When a bug reproduces on one unit and not another, compare
+    the hardware revisions before theorising, because you may be debugging a difference in the boards
+    rather than in the code. Record the board revision in your
+    <a href="66-git-review-release.html">commit messages and defect reports</a> for exactly this
+    reason &mdash; it is a piece of context that cannot be recovered later.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> Every Nucleo and Discovery board publishes its full schematic as a PDF,
+  so this needs no hardware beyond the board you already have.</p>
+  <pre><code>1. Download the schematic for your Nucleo and find the user LED.
+   Follow the net from the MCU pin to the LED and its resistor, and
+   answer: which port and pin, is it active high or low, and what
+   current does that resistor set? Then confirm with your own code.
+
+2. Find the ST-LINK section and identify the SWD pins, the virtual
+   COM port pins, and the solder bridges that connect or disconnect
+   them. Those bridges are why a Nucleo's UART sometimes goes to the
+   PC and sometimes to the header.
+
+3. Find one DNP component on the schematic and then look for it on
+   the board. Seeing an empty pad that the drawing shows populated,
+   once, permanently changes how much you trust a PDF.
+
+4. Do the six-point check for one real peripheral -- the I2C sensor
+   on a Discovery board, or a device on a shield: pin and alternate
+   function, voltage, pull-ups and their value, inversion, address
+   straps, and what it needs to start. Write the six answers down
+   BEFORE writing any driver code.
+
+5. Use a multimeter in continuity mode to confirm one net you just
+   traced on paper. Ten seconds, and it is the habit that resolves
+   "the schematic says it is connected" arguments.
+
+6. Then write the review comments you would send for a board that
+   used PA13 for an LED, put two interrupt inputs on PA0 and PB0, and
+   brought out no spare test points. Those three comments are worth
+   more to a hardware team than most firmware reviews.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Same net name means same wire</strong>, across sheets. Search the PDF rather than
+        tracing lines.</li>
+    <li><strong>Crossing lines are not connected unless there is a dot.</strong></li>
+    <li><strong>DNP means drawn but not fitted.</strong> The BOM and the board, not the schematic, are
+        the authority.</li>
+    <li><strong>Check pin and alternate function against the datasheet table</strong> before writing a
+        driver &mdash; and before the board is laid out, if you are invited.</li>
+    <li><strong>Check the voltage on the net</strong>: a 3.3 V output may never reach a 5 V input's
+        threshold, which looks intermittent.</li>
+    <li><strong>Check pull-ups and their value</strong>; on I&sup2;C they set the rise time and so the
+        maximum speed.</li>
+    <li><strong>Assume field inputs are inverted</strong> by their conditioning, and put the inversion
+        in one named function.</li>
+    <li><strong>Check address straps</strong> &mdash; half of &ldquo;the sensor does not answer&rdquo;
+        is a wrong I&sup2;C address.</li>
+    <li><strong>Ask what every output does before firmware runs</strong>, and what happens during
+        reset or a watchdog event.</li>
+    <li><strong>Ask for debug access and two spare pins</strong> before layout. It is free then and
+        impossible afterwards.</li>
+    <li><strong>The schematic is intent; the board is fact.</strong> Check the revision, look for
+        bodges, and measure continuity when the two disagree.</li>
+    <li><strong>Record the board revision</strong> in commits and defect reports.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Sa leggere uno schema elettrico?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Non lo progetto, ma lo leggo per fare il mio lavoro, e prima di scrivere un driver
+    faccio sempre lo stesso giro di sei domande. Su che pin arriva, e quel pin supporta
+    l&rsquo;alternate function che mi serve &mdash; questo lo verifico sulla tabella del datasheet, ed
+    &egrave; anche la cosa pi&ugrave; utile che posso dire in una revisione di schema, prima che la
+    scheda sia fatta. Che tensione c&rsquo;&egrave; sulla net, perch&eacute; un&rsquo;uscita a 3,3 volt
+    su un ingresso a 5 pu&ograve; non arrivare alla soglia e il guasto sembra intermittente. Se
+    c&rsquo;&egrave; un pull-up e di che valore, che su I2C mi decide il tempo di salita e quindi la
+    velocit&agrave; massima. Se il segnale &egrave; invertito, perch&eacute; un opto o uno stadio a
+    transistor invertono quasi sempre e quell&rsquo;inversione la metto in una funzione sola nel
+    livello hardware. Come sono strappati i pin di indirizzo. E cosa serve al dispositivo per
+    partire: reset, enable, un tempo minimo dopo l&rsquo;alimentazione. Poi la cosa che ho imparato a
+    non dimenticare: lo schema &egrave; l&rsquo;intenzione, la scheda &egrave; il fatto. Controllo la
+    revisione stampata sulla scheda, guardo se ci sono componenti non montati o fili volanti, e se il
+    comportamento contraddice il disegno metto il multimetro in continuit&agrave;: dieci secondi e la
+    discussione &egrave; chiusa.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

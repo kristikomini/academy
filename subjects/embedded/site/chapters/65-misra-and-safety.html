@@ -18,25 +18,307 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 10 — Debugging, testing and quality <span>&rsaquo;</span> Chapter 65</p>
+<p class="crumbs">Part 10 &mdash; Debugging, testing and quality <span>&rsaquo;</span> Chapter 65</p>
 <h1>MISRA C, static analysis and functional safety</h1>
-<p class="lede">Coding standards that forbid legal C, the tools that enforce them, and what IEC 61508 and a SIL rating actually demand.</p>
+<p class="lede">
+  A coding standard that forbids perfectly legal C, the tools that enforce it, and the standards
+  underneath &mdash; IEC 61508, ISO 26262, and what a SIL or an ASIL actually obliges a team to do.
+  Knowing what MISRA is <em>for</em> matters far more than memorising rules.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> Appears in regional safety-critical and machinery listings, and increasingly in machine-directive work. Knowing what MISRA is for matters more than memorising rules.</p>
+  <p>
+    <strong>Not in the anchor advert</strong>, and present across the regional safety-critical and
+    machinery listings collected beside it, increasingly under the Machinery Regulation. The
+    automotive posting in the corpus implies it: propulsion work is where the higher ASILs live, and
+    <a href="64a-automotive-v-cycle.html">chapter 64a</a> is the process this chapter supplies the
+    coding half of.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="why">Why forbid legal C</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    C lets you write things whose meaning is not fully defined, or which mean different things on
+    different compilers, or which are simply very easy to get wrong. The compiler accepts them without
+    complaint.
+  </p>
+  <p>
+    MISRA is a list of &ldquo;do not use this part of the language&rdquo; rules, written by the motor
+    industry and now used far beyond it. The point is not that those constructs never work. It is that
+    when a mistake could hurt somebody, you give up some freedom in exchange for code whose behaviour
+    can be argued about with confidence.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    MISRA C:2012 (with amendments) is the current edition, and its rules come in three obligations
+    &mdash; the same grammar as <a href="67-technical-english.html">specification English</a>:
+    <strong>mandatory</strong> (no deviation permitted), <strong>required</strong> (deviation possible
+    with a documented, approved rationale) and <strong>advisory</strong> (recommended). There are also
+    <em>directives</em>, which are about process and cannot be checked purely by a tool.
+  </p>
+  <p>
+    The rules that actually change how you write, and which are worth knowing by their content rather
+    than their number:
+  </p>
+  <ul>
+    <li><strong>No dynamic memory</strong> after initialisation &mdash; which is already the house rule
+        in <a href="11-avoiding-malloc.html">chapter 11</a>.</li>
+    <li><strong>No recursion</strong>, because stack usage must be statically provable
+        (<a href="12-stack-overflow.html">chapter 12</a>).</li>
+    <li><strong>Every <code>if</code> and loop body in braces</strong>, and every
+        <code>switch</code> ends with a <code>default</code>. Both exist because of specific, famous
+        defects.</li>
+    <li><strong>One <code>return</code>, no <code>goto</code></strong> (advisory in 2012 and often
+        deviated from, since early return can be clearer than deep nesting).</li>
+    <li><strong>No implicit conversions between signedness or width</strong>, which is the family of
+        rules people find most annoying and which catches the most real bugs &mdash;
+        <a href="03-types-and-integers.html">chapter 3</a> is the reason.</li>
+    <li><strong>Fixed-width types</strong> (<code>uint16_t</code>, not <code>int</code>) everywhere the
+        size matters.</li>
+    <li><strong>No undefined or unspecified behaviour</strong>, including no relying on evaluation
+        order (<a href="13-undefined-behaviour.html">chapter 13</a>).</li>
+    <li><strong>Pointer arithmetic constrained</strong>, and pointer-to-integer conversions
+        restricted &mdash; which is exactly where
+        <a href="23-memory-mapped-io.html">memory-mapped I/O</a> needs a documented deviation, because
+        a register access is a pointer-to-integer conversion by definition.</li>
+  </ul>
+  <p>
+    That last point generalises: <strong>a deviation is a normal part of using MISRA</strong>, not a
+    failure. Register access, a vendor HAL, an RTOS, a compiler intrinsic &mdash; each needs a
+    recorded deviation with a rationale and an approver. A project claiming zero deviations either has
+    no hardware access or is not being honest, and saying that in an interview shows you have worked
+    with the standard rather than read about it.
+  </p>
+</div>
+
+<h2 id="tools">The tools, and what each kind can find</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Nobody checks these rules by eye. Programs read your source and report violations &mdash; and the
+    better ones also find real bugs the rules were written to prevent: a variable used before it is
+    set, an array index that can go past the end, a value that can be divided by zero.
+  </p>
+  <p>
+    The cheapest of these tools is the compiler you already have, with its warnings turned all the way
+    up.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>The compiler.</strong> <code>-Wall -Wextra</code>, plus
+        <code>-Wconversion</code>, <code>-Wshadow</code> and <code>-Wpointer-arith</code>, with
+        <code>-Werror</code> in CI. This is free, it is already installed, and it catches a
+        substantial fraction of what people buy tools for. A project that is not warning-clean cannot
+        usefully add anything else, because the signal is already buried.</li>
+    <li><strong>Free static analysers</strong> &mdash; <code>cppcheck</code>,
+        <code>clang-tidy</code> and the Clang static analyser. They do real data-flow analysis and
+        have partial MISRA add-ons. Worth adding to CI on any project.</li>
+    <li><strong>Commercial tools</strong> &mdash; PC-lint Plus, Polyspace, Coverity, Helix QAC.
+        Certified for use in safety processes, with full MISRA coverage and, in the case of abstract
+        interpretation, the ability to <em>prove</em> the absence of certain run-time errors rather
+        than merely look for them. That certification, and the report it produces, is much of what is
+        being paid for.</li>
+    <li><strong>Dynamic tools on the host build</strong> &mdash; AddressSanitizer,
+        UndefinedBehaviorSanitizer, Valgrind &mdash; which find things no static tool can, and which
+        run for free in the off-target tests of <a href="64-testing-firmware.html">chapter 64</a>.
+        Static and dynamic analysis are complements, not alternatives, and being able to say why is a
+        good interview answer.</li>
+  </ul>
+  <p>
+    The operational rule that decides whether any of this works: <strong>turn it on at the start, and
+    keep the count at zero.</strong> A tool introduced to a mature codebase reports four thousand
+    findings, everybody agrees to fix them gradually, and the number never falls &mdash; and a report
+    nobody reads is worse than no report, because it looks like diligence. On an existing project the
+    workable approach is to baseline the current findings, fail the build only on <em>new</em> ones,
+    and burn the baseline down deliberately.
+  </p>
+</div>
+
+<h2 id="safety">Functional safety, in enough detail to talk about it</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    If a failure of your software could injure somebody, the law and the customer stop caring about
+    your opinion and start asking for evidence: what could go wrong, how likely is it, what have you
+    done about it, and how do you know?
+  </p>
+  <p>
+    The standards are the agreed answer to those four questions. They do not make software safe; they
+    make the argument about safety systematic and reviewable.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>IEC 61508</strong> &mdash; the general functional-safety standard, with
+        <strong>SIL 1</strong> to <strong>SIL 4</strong>. The parent of most of the others.</li>
+    <li><strong>ISO 26262</strong> &mdash; automotive, with <strong>ASIL A</strong> to
+        <strong>D</strong>, derived from severity, exposure and controllability. Propulsion work
+        commonly sits at ASIL B or above.</li>
+    <li><strong>ISO 13849 / IEC 62061</strong> &mdash; machinery, with performance levels PL a&ndash;e.
+        This is the set a machine builder in this region meets most often.</li>
+    <li><strong>IEC 60730</strong> for appliances, <strong>IEC 62304</strong> for medical devices,
+        <strong>DO-178C</strong> for aviation.</li>
+  </ul>
+  <p>
+    What an integrity level actually obliges, stripped of ceremony: a <strong>hazard analysis</strong>
+    that says what can go wrong and how bad it is; <strong>requirements traced</strong> to the
+    architecture and to tests in both directions (<a href="64a-automotive-v-cycle.html">chapter
+    64a</a>); a <strong>qualified toolchain</strong>, because a compiler bug is a safety issue and the
+    compiler version is part of the evidence; <strong>coding standards enforced</strong>, which is
+    MISRA; <strong>structural coverage evidence</strong>, up to MC/DC at high levels;
+    <strong>diagnostics</strong> in the product itself &mdash; RAM and flash self-tests, a
+    <a href="28-low-power-and-watchdog.html">watchdog</a>, plausibility checks between redundant
+    sensors, a defined safe state entered on fault; and <strong>configuration management with
+    reviews</strong>, which is <a href="66-git-review-release.html">chapter 66</a> made mandatory.
+  </p>
+  <p>
+    Nothing on that list is exotic. Every item is something a well-run non-safety project does
+    informally; the standard makes it explicit, traceable and auditable. That framing is the honest
+    one to bring to an interview, especially as a junior who has not worked on a certified product:
+    you are not claiming experience, you are showing you know what the work consists of.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>misra, c, 2012, rule, directive, mandatory, required, advisory, deviation, static</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>Compliance becomes the goal, and the code gets less safe while the paperwork improves.</strong>
+  </p>
+  <p>
+    The mechanism is banal. A tool flags a construct; the quickest way to clear the finding is a cast
+    that silences the check rather than the fix that addresses it. An implicit conversion warning is
+    removed by casting to the expected type, which discards exactly the information the rule existed
+    to preserve. A deviation is granted because the deadline is Friday, with a rationale of &ldquo;this
+    is fine&rdquo;. Six months later the codebase reports zero violations and contains casts nobody can
+    justify, and the report says everything is in order.
+  </p>
+  <p>
+    Two questions keep it honest. For every suppression: <strong>does this cast make the behaviour
+    defined, or does it only make the tool quiet?</strong> They are completely different acts, and the
+    difference is visible in one line of review. And for every deviation: <strong>would you write this
+    rationale down and sign it?</strong> A deviation is a small engineering argument &mdash; what the
+    rule protects, why that risk is absent here, what else covers it &mdash; and one that cannot be
+    written in three sentences is usually a defect being licensed.
+  </p>
+  <p>
+    The larger version of the same trap is worth stating because it is the answer to
+    &ldquo;what do you think of MISRA?&rdquo;: <strong>a standard cannot make a design safe.</strong>
+    Perfectly MISRA-compliant code can miss a hazard entirely, and no rule about braces catches a
+    sensor read that is never plausibility-checked or a safe state that was never defined. The rules
+    reduce a class of language-level mistakes so that review and analysis can spend their attention on
+    the design, which is where the real hazards live.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> All of this runs on a PC, on code you already have.</p>
+  <pre><code>1. Turn the warnings up on an existing project:
+
+     -Wall -Wextra -Wconversion -Wshadow -Wpointer-arith
+
+   Count the findings. Then fix ten of them and look at what they
+   were: a good share will be genuine sign or width bugs of the
+   chapter 3 family, not style.
+
+2. Run cppcheck with its MISRA add-on over the same project:
+
+     cppcheck --enable=all --addon=misra src/
+
+   Read twenty findings and sort them into three piles: real bug,
+   real rule violation that is fine here, and noise. That sorting IS
+   the skill -- the tool cannot do it.
+
+3. Write one deviation properly. Take your register access -- a
+   pointer-to-integer conversion, which MISRA restricts -- and write
+   three sentences: what the rule protects against, why that risk does
+   not apply here, and what controls it instead. Keep it; that is the
+   artefact a safety process wants.
+
+4. Demonstrate the trap to yourself. Find a -Wconversion warning and
+   "fix" it with a cast, then work out whether the cast changed the
+   behaviour or only the message. On at least one of them it will have
+   hidden a real truncation.
+
+5. Add the sanitisers to the host tests from chapter 64:
+
+     -fsanitize=address,undefined
+
+   Then run the parser's property test again. Static analysis and
+   sanitisers find different things, and seeing that once settles the
+   "which tool do we need" argument.
+
+6. Finally, write the hazard list for something you have built -- the
+   fan controller, the Modbus node. Five lines: what can go wrong, how
+   bad, what detects it, what the safe state is. Nobody expects a
+   junior to have certified a product; being able to produce that
+   table is what the question is really testing.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>MISRA restricts legal C so behaviour can be argued about with confidence</strong>, not
+        because the constructs never work.</li>
+    <li><strong>Mandatory, required, advisory</strong> are three different obligations, and directives
+        are process rather than code.</li>
+    <li><strong>Deviations are normal.</strong> Register access needs one, and a project claiming zero
+        is not being honest.</li>
+    <li><strong>A deviation is an argument</strong>: what the rule protects, why the risk is absent
+        here, what covers it instead &mdash; in three sentences, signed.</li>
+    <li><strong>Start with the compiler.</strong> <code>-Wall -Wextra -Wconversion</code> with
+        <code>-Werror</code> in CI is free and catches much of it.</li>
+    <li><strong>Static and dynamic analysis are complements</strong>; sanitisers on the host build find
+        what no static tool can.</li>
+    <li><strong>Turn tools on at the start and keep the count at zero</strong>, or baseline and fail
+        only on new findings.</li>
+    <li><strong>A report nobody reads is worse than no report</strong>, because it looks like
+        diligence.</li>
+    <li><strong>Ask whether a cast makes the behaviour defined or only makes the tool quiet.</strong></li>
+    <li><strong>Integrity levels oblige hazard analysis, traceability, a qualified toolchain, coverage
+        evidence, in-product diagnostics and a defined safe state.</strong></li>
+    <li><strong>A standard cannot make a design safe.</strong> It clears language-level noise so review
+        can look at the hazards.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Cosa ne pensa di MISRA? Ha lavorato con norme di sicurezza funzionale?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Su un prodotto certificato non ho lavorato, e lo dico subito; per&ograve; so di cosa si
+    tratta e come si lavora. MISRA per me non &egrave; una lista di divieti stilistici: &egrave;
+    rinunciare a un pezzo di libert&agrave; del linguaggio in cambio di codice di cui si pu&ograve;
+    argomentare il comportamento &mdash; niente allocazione dinamica dopo l&rsquo;inizializzazione,
+    niente ricorsione perch&eacute; lo stack deve essere dimostrabile, tipi a larghezza fissa, niente
+    conversioni implicite fra segni e larghezze, che &egrave; la famiglia di regole che d&agrave;
+    pi&ugrave; fastidio e che prende pi&ugrave; bug veri. E le deviazioni sono normali: l&rsquo;accesso
+    ai registri &egrave; una conversione da puntatore a intero, quindi una deviazione documentata
+    serve per forza &mdash; un progetto che dichiara zero deviazioni o non tocca hardware o non
+    &egrave; sincero. La deviazione per me &egrave; un piccolo ragionamento scritto: da cosa protegge
+    la regola, perch&eacute; qui quel rischio non c&rsquo;&egrave;, cosa lo copre al suo posto. Sui
+    tool parto sempre dal compilatore, -Wall -Wextra -Wconversion con -Werror in CI, perch&eacute;
+    &egrave; gratis ed &egrave; gi&agrave; installato, e aggiungo cppcheck e i sanitizer sui test
+    host, che trovano cose che l&rsquo;analisi statica non vede. La trappola che ho visto descritta e
+    che mi sembra reale &egrave; che la conformit&agrave; diventi il fine: si mette un cast per far
+    stare zitto il tool invece di correggere, e dopo sei mesi il report &egrave; verde e il codice
+    &egrave; peggiore. La domanda che tengo &egrave;: questo cast rende il comportamento definito o fa
+    solo tacere lo strumento?&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

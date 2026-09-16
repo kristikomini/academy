@@ -18,25 +18,270 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 10 — Debugging, testing and quality <span>&rsaquo;</span> Chapter 61</p>
+<p class="crumbs">Part 10 &mdash; Debugging, testing and quality <span>&rsaquo;</span> Chapter 61</p>
 <h1>Printf, tracing and the cost of looking</h1>
-<p class="lede">A blocking printf in an interrupt changes the timing it was measuring. Cheaper instruments: SWO, RTT, a ring buffer and a pin.</p>
+<p class="lede">
+  Every instrument disturbs what it measures, and <code>printf</code> disturbs it more than anything
+  else you will reach for. What it actually costs, why that cost hides exactly the bugs you are
+  hunting, and the cheaper instruments &mdash; SWO, RTT, a ring buffer, and one spare pin.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The first instinct everyone brings from PC programming, and the one that hides real-time bugs most effectively.</p>
+  <p>
+    <strong>Not in any advert</strong>, and present in every project. It is the first instinct
+    everybody brings from PC programming, and the one that hides real-time bugs most effectively
+    &mdash; which makes it worth a chapter rather than a footnote.
+    <a href="43-timing-and-jitter.html">Chapter 43</a> is the measurement theory; this is the
+    plumbing.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="cost">What a printf costs</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    On a PC, printing a line is free enough to ignore. On a microcontroller sending a 40-character
+    line down a serial port at 115200 baud takes about three and a half milliseconds &mdash; and if the
+    code waits for it, that is three and a half milliseconds of doing nothing else.
+  </p>
+  <p>
+    In a system where things are supposed to happen every millisecond, one debug line has changed the
+    behaviour more than most bugs would. You are no longer measuring your program; you are measuring a
+    different program.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The three costs, in order of how often they matter:
+  </p>
+  <ul>
+    <li><strong>Time on the wire.</strong> Ten bits per character at 115200 baud is 87 &micro;s per
+        character; 40 characters is 3.5 ms. At 168 MHz that is over half a million instructions. A
+        blocking <code>printf</code> inside a 1 ms control loop does not slow it down, it destroys
+        it.</li>
+    <li><strong>Formatting.</strong> <code>printf</code> parses a format string at run time, and the
+        float-capable version pulls in conversion code that can cost 10&ndash;20 KB of flash
+        (<a href="36-build-and-linker-script.html">chapter 36</a>). It also uses a surprising amount
+        of stack, which on a small task is how you meet
+        <a href="12-stack-overflow.html">chapter 12</a>.</li>
+    <li><strong>Re-entrancy.</strong> The standard library's <code>printf</code> is generally not
+        re-entrant. Called from both the main loop and an ISR, output interleaves into garbage at
+        best; with a shared buffer, it corrupts. And <code>printf</code> in an ISR is doubly wrong,
+        because it makes the interrupt long (<a href="26-interrupts-and-nvic.html">chapter 26</a>).</li>
+  </ul>
+  <p>
+    So the first fix is not to stop printing, it is to <strong>stop blocking</strong>: format into a
+    ring buffer and let a DMA or an interrupt drain it to the UART
+    (<a href="27-dma.html">chapter 27</a>). The producer costs microseconds instead of milliseconds,
+    and the ordering is preserved. The second fix is to <strong>drop rather than block when the buffer
+    is full</strong>, and to count the drops &mdash; a logger that stalls the system under load is a
+    logger that changes the system's behaviour exactly when the log matters, whereas
+    &ldquo;47 messages lost&rdquo; is honest and cheap.
+  </p>
+  <p>
+    Two further wins, both nearly free. <strong>Timestamp every line</strong> from a free-running
+    counter, because a log without time cannot show you a timing bug. And <strong>log binary events
+    rather than text</strong> where volume matters: a one-byte event id plus a timestamp is four bytes
+    and a few cycles, against forty bytes and a formatting pass, and a five-line script on the PC side
+    turns the ids back into words.
+  </p>
+</div>
+
+<h2 id="instruments">Cheaper instruments</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    There are ways to get information out of a running chip that cost almost nothing: a dedicated
+    trace pin the debugger reads, a shared memory buffer the debugger picks up while the program keeps
+    running, or simply toggling a spare pin and watching it with an instrument.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>SWO / ITM.</strong> One extra pin, driven by the core's trace unit. Writing a byte to
+        an ITM stimulus register is a single store when the buffer is free &mdash; a few cycles rather
+        than milliseconds &mdash; and the debugger prints it. The catch is that it needs the trace
+        clock configured to match the core clock, and that a wrong
+        <a href="25-clocks-and-plls.html">clock</a> setting produces silence or garbage, which is why
+        people give up on it in ten minutes.</li>
+    <li><strong>RTT</strong> (SEGGER's, with J-Link). A ring buffer in RAM with a known signature;
+        the probe finds it by scanning memory and reads it <em>while the core runs</em>, because the
+        debug port is a bus master. Costs a memcpy on the target, needs no extra pin, and is the best
+        general-purpose answer when you have a J-Link.</li>
+    <li><strong>A GPIO pin and a</strong> <a href="62-scope-and-logic-analyser.html">logic
+        analyser</a>. Set on entry, clear on exit: two instructions, about 12 ns, and you get exact
+        timing of an ISR or a task with essentially zero disturbance. For any question of the form
+        &ldquo;how long, how often, in what order&rdquo;, this is the correct instrument, and it is the
+        one experienced people reach for first.</li>
+    <li><strong>An event ring in no-init RAM</strong>, dumped after a reset
+        (<a href="60-the-debugger.html">chapter 60</a>). The only instrument that works when the
+        failure is a crash in the field.</li>
+    <li><strong><code>CYCCNT</code></strong> from the DWT: a free-running cycle counter you read
+        before and after. Not an output channel at all, but the right way to answer &ldquo;how long
+        does this take&rdquo; to the cycle.</li>
+  </ul>
+  <p>
+    A comparison worth remembering as one line: <strong>printf costs milliseconds, RTT and ITM cost
+    microseconds, a pin costs nanoseconds.</strong> Choose by how small the thing you are measuring
+    is.
+  </p>
+</div>
+
+<h2 id="production">Logging that ships</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Debug printing usually gets deleted before the product ships, which means the day a customer has a
+    problem, the device says nothing at all. A better plan is a logging system quiet enough to leave
+    switched on.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    What &ldquo;quiet enough to ship&rdquo; means in practice:
+  </p>
+  <ul>
+    <li><strong>Levels, filtered at compile time as well as at run time.</strong> A macro that compiles
+        to nothing at the lowest level costs no flash and no cycles; a run-time level lets a
+        technician raise verbosity on site without a new binary.</li>
+    <li><strong>Per-module tags</strong>, so one subsystem can be made verbose without drowning in the
+        rest.</li>
+    <li><strong>A bounded output path</strong> that drops and counts rather than blocking, on a
+        low-priority path, and never from an ISR &mdash; an ISR enqueues an event id, and the printing
+        happens later at a level where blocking is survivable.</li>
+    <li><strong>A dedicated diagnostic channel where one exists.</strong> In automotive that is
+        <a href="49b-uds.html">UDS DIDs and DTCs</a> rather than a serial console; in a plant it is a
+        block of <a href="50-modbus-rtu.html">Modbus</a> registers. A log nobody can retrieve without
+        opening the cabinet is not a diagnostic.</li>
+    <li><strong>Counters beside the log.</strong> Error counts, drop counts, resets, worst-case loop
+        time &mdash; numbers survive better than prose, cost nothing to keep, and are what a
+        technician reads first (the same argument as the CAN error counters in
+        <a href="49-can-and-canopen.html">chapter 49</a>).</li>
+  </ul>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>printf, semihosting, retarget, _write, uart, blocking, timing, distortion, swo, itm</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>The bug disappears when you add the printf, and comes back when you remove it &mdash; so
+    the printf gets left in &ldquo;because it works now&rdquo;.</strong>
+  </p>
+  <p>
+    This is the classic heisenbug, and it is a <em>diagnosis</em>, not a nuisance. The printf changed
+    the timing, and the fact that timing changes the outcome tells you the defect is one of a small
+    family: a race between an ISR and the main context; a missing
+    <a href="06-const-and-volatile.html"><code>volatile</code></a>, where the delay happens to give
+    the hardware time to catch up; a buffer that only overruns when the consumer is fast; or a
+    peripheral that needs a settling time the datasheet mentions and nobody read.
+  </p>
+  <p>
+    What to do instead of leaving it in: <strong>replace the printf with a delay of the same
+    length</strong>. If the bug stays away, it is timing, and you now know roughly how much slack the
+    system needed &mdash; which points at the real fix. If the bug comes back, the printf was doing
+    something else, most likely serialising two code paths through a shared buffer, which means you
+    have found a concurrency bug rather than a timing one.
+  </p>
+  <p>
+    Shipping the printf is a genuine hazard, not a style complaint: the timing that hides the bug is
+    an accident, so it changes with a compiler version, an optimisation flag, a different baud rate or
+    a busier bus &mdash; and the defect reappears in the field, in a build nobody associates with the
+    change. The rule worth holding: <strong>a delay that fixes a bug is a bug you have not found
+    yet.</strong>
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> A Nucleo, and for the pin exercise the logic analyser from chapter 29.</p>
+  <pre><code>1. Measure the cost. Toggle a pin around a blocking printf of 40
+   characters at 115200 baud and look at it on the analyser. You
+   should see roughly 3.5 ms. Then do the same around an ITM or RTT
+   write and compare -- microseconds.
+
+2. Build the non-blocking logger: format into a ring buffer, drain it
+   with UART DMA or a TX-empty interrupt, drop and COUNT when full.
+   Then hammer it from a fast loop and confirm the system keeps its
+   timing while the drop counter rises. That is the difference between
+   a logger and a hazard.
+
+3. Timestamp every line from a free-running timer (chapter 32,
+   exercise 5) or from DWT CYCCNT, and print the delta. A log without
+   time cannot show a timing bug, and you will feel the difference
+   immediately.
+
+4. Instrument an ISR with a pin: set on entry, clear on exit. Measure
+   its duration and its period on the analyser. Then add a printf
+   inside the same ISR and watch the period fall apart. Two minutes,
+   and it is this whole chapter.
+
+5. Get SWO working once, deliberately -- configure the trace clock to
+   match the core clock, redirect putchar to ITM_SendChar, and read it
+   in the IDE. It fails silently if the clock is wrong, which is why
+   most people never use it; getting it right once makes it available
+   forever.
+
+6. Then make the heisenbug on purpose: a flag written by an ISR and
+   read by the main loop, without volatile, at -O2. Watch a printf
+   "fix" it. Replace the printf with an equal delay and watch it stay
+   fixed. Then fix it properly with volatile and remove both.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>A 40-character line at 115200 baud is about 3.5 ms</strong>, which is half a million
+        instructions at 168 MHz.</li>
+    <li><strong>Never block on output.</strong> Format into a ring buffer and drain it by DMA or
+        interrupt.</li>
+    <li><strong>Drop and count rather than stall.</strong> A logger that blocks under load changes the
+        system exactly when the log matters.</li>
+    <li><strong>Never <code>printf</code> from an ISR.</strong> Enqueue an event id and print it
+        later.</li>
+    <li><strong><code>printf</code> is not re-entrant</strong>, and the float version can cost
+        20 KB of flash and a lot of stack.</li>
+    <li><strong>Timestamp everything.</strong> A log without time cannot show a timing bug.</li>
+    <li><strong>printf costs milliseconds, ITM and RTT cost microseconds, a pin costs
+        nanoseconds.</strong> Pick by the size of what you are measuring.</li>
+    <li><strong>For &ldquo;how long, how often, in what order&rdquo;, use a pin and a logic
+        analyser.</strong></li>
+    <li><strong>A bug that a printf fixes is a timing or concurrency bug</strong>, and that is a
+        diagnosis worth acting on.</li>
+    <li><strong>A delay that fixes a bug is a bug you have not found yet.</strong> Never ship it.</li>
+    <li><strong>Ship the logging, with levels, tags, drop counts and a way to read it over the
+        device's normal interface.</strong></li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Come fa il debug di un problema di tempi, e perch&eacute; non con le printf?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Perch&eacute; la printf &egrave; lo strumento che disturba di pi&ugrave; proprio
+    quello che voglio misurare. Quaranta caratteri a 115200 sono circa tre millisecondi e mezzo
+    bloccanti: dentro un loop di controllo da un millisecondo non lo rallento, lo distruggo &mdash; e
+    quello che misuro non &egrave; pi&ugrave; il mio programma. Quindi se devo loggare, formatto in un
+    ring buffer e lo svuoto in DMA, e quando il buffer &egrave; pieno scarto e conto gli scarti invece
+    di bloccare; e dentro un&rsquo;ISR non stampo mai, al massimo accodo un id di evento. Ma per le
+    domande di tempo &mdash; quanto dura, ogni quanto, in che ordine &mdash; lo strumento giusto
+    &egrave; un pin: set all&rsquo;ingresso dell&rsquo;ISR, clear all&rsquo;uscita, due istruzioni,
+    una decina di nanosecondi, e guardo tutto sull&rsquo;analizzatore logico. La regola che mi porto
+    dietro &egrave; questa: printf costa millisecondi, ITM o RTT costano microsecondi, un pin costa
+    nanosecondi. E se aggiungendo una printf il bug sparisce, per me non &egrave; una soluzione ma una
+    diagnosi: vuol dire che &egrave; un problema di tempi o di concorrenza &mdash; spesso un volatile
+    mancante. Allora provo a sostituire la printf con un ritardo uguale: se resta a posto so quanto
+    slack serviva e dove guardare. Un ritardo che risolve un bug &egrave; un bug che non ho ancora
+    trovato, e non lo spedisco.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

@@ -612,4 +612,328 @@ window.QUIZZES = Object.assign(window.QUIZZES || {}, {
       why: "Asking which protocol they use toward customer PLCs, or how they know which firmware binary is on a machine in the field, is a question only somebody who has thought about the work asks." },
   ],
 
+
+  /* --------------------------------------------------------- 60-the-debugger --- */
+  "60-the-debugger": [
+    { q: "Why can a debugger read RAM on a Cortex-M while the core is still running?",
+      a: ["It halts the core briefly for each read and restarts it", "The debug access port is itself a bus master on the internal bus matrix", "It reads a mirror of RAM maintained by the trace unit", "It cannot; reading always requires a halt"],
+      c: 1,
+      why: "Which also means those reads compete with your code for bus bandwidth, and it is what makes live variable watching and RTT possible." },
+
+    { q: "What limits the number of breakpoints you can set in flash?",
+      a: ["The size of the debugger's buffer", "Hardware breakpoints are comparators in silicon, so there is a small fixed number, typically 6 on an M4 and 2 on an M0", "The optimisation level of the build", "The number of NVIC priority levels"],
+      c: 1,
+      why: "Software breakpoints patch a BKPT instruction into the code, so they only work in RAM, not in flash." },
+
+    { q: "Which debugger feature answers the question 'what is writing to this variable?'",
+      a: ["A conditional breakpoint on every function", "A data watchpoint, which breaks on an address being read or written", "Single-stepping from reset", "The call stack view"],
+      c: 1,
+      why: "It is a five-minute problem with a watchpoint and an afternoon without one, and it is the fastest way to catch a stack overflow eating a global." },
+
+    { q: "What is the fastest way to confirm that a peripheral is clocked and configured as you intended?",
+      a: ["Re-read the initialisation source carefully", "Look at the peripheral register view in the debugger, because registers cannot be wrong about what the hardware believes", "Add printf statements after each write", "Single-step through the HAL"],
+      c: 1,
+      why: "Thirty seconds there beats thirty minutes of rereading source, and it settles the whole disabled-clock family of bugs." },
+
+    { q: "What is 'connect under reset' for?",
+      a: ["Recovering a device with read protection level 2", "Attaching to a board whose firmware reconfigures the SWD pins or enters a low-power mode immediately after reset", "Flashing a device faster by skipping verification", "Resetting peripherals without resetting the core"],
+      c: 1,
+      why: "Reconfiguring PA13 or PA14 as GPIO makes a board unreachable otherwise, because the reconfiguration happens microseconds after reset." },
+
+    { q: "What happens to the rest of the system when you halt the core at a breakpoint?",
+      a: ["Everything stops together with the core", "Peripherals and the outside world keep running by default, so UARTs overrun, CAN goes bus-off and motors keep spinning", "Peripherals are frozen automatically by the debug hardware", "Only DMA continues"],
+      c: 1,
+      why: "There are debug freeze bits for timers and the watchdog, and nothing equivalent for a machine. Halting a core is a safety consideration, not just an inconvenience." },
+
+    { q: "A bug reliably disappears when you run under the debugger. What does that tell you?",
+      a: ["The debugger build has different compiler settings", "It is timing-related, so you should change instrument to tracing or a pin and a scope rather than keep stepping", "The bug is in the optimiser", "The debugger is faulty"],
+      c: 1,
+      why: "It is a diagnosis rather than a nuisance: races, missed deadlines and priority inversions all change character when single-stepped." },
+
+    { q: "Why are variables sometimes reported as 'optimised out' at -O2?",
+      a: ["The debugger has lost synchronisation with the source", "The compiler keeps them in registers or eliminates them, which is correct behaviour rather than a debugger fault", "The linker discarded them with --gc-sections", "They were declared volatile"],
+      c: 1,
+      why: "The -Og level exists as the compromise between debuggability and realistic optimisation." },
+
+    { q: "What is the right approach when a failure only happens in the field and cannot be reproduced on the bench?",
+      a: ["Ship a build with a debugger permanently attached", "Make the system record its own evidence: a crash record and event ring in no-init RAM, readable back over the device's normal interface", "Add printf statements throughout and hope the operator sees them", "Increase the watchdog timeout so the device survives longer"],
+      c: 1,
+      why: "A day of work turns 'it crashed on Tuesday' into an address and a sequence of events, with nobody driving anywhere." },
+
+    { q: "Why is stepping through code hoping to notice something the slowest debugging technique?",
+      a: ["Because stepping is slow on SWD", "Because a debugger answers questions but does not generate them, so you should state a hypothesis and go get the one observation that would disprove it", "Because breakpoints are limited in number", "Because optimised code cannot be stepped"],
+      c: 1,
+      why: "It is nevertheless the default for most people, and changing it is the single biggest speed difference between engineers." },
+  ],
+
+  /* ---------------------------------------------------- 61-printf-and-tracing --- */
+  "61-printf-and-tracing": [
+    { q: "Roughly how long does a blocking 40-character printf take at 115200 baud, and why does it matter?",
+      a: ["About 40 microseconds, which is negligible", "About 3.5 ms, which at 168 MHz is over half a million instructions and destroys a 1 ms control loop", "About 350 microseconds, which is usually acceptable", "It depends entirely on the formatting complexity"],
+      c: 1,
+      why: "Ten bits per character at 115200 baud is 87 microseconds each. The instrument has changed the program you were trying to measure." },
+
+    { q: "What is the first fix for an expensive logging path?",
+      a: ["Lower the baud rate so fewer characters are sent", "Stop blocking: format into a ring buffer and let DMA or a TX interrupt drain it", "Log less often", "Move the logging into an interrupt handler"],
+      c: 1,
+      why: "The producer then costs microseconds instead of milliseconds, and ordering is preserved." },
+
+    { q: "What should a logger do when its buffer is full?",
+      a: ["Block until space is available, so no message is lost", "Drop messages and count the drops", "Overwrite the oldest entries silently", "Grow the buffer dynamically"],
+      c: 1,
+      why: "A logger that stalls under load changes the system exactly when the log matters. 'Forty-seven messages lost' is honest and cheap." },
+
+    { q: "Why must printf never be called from an interrupt handler?",
+      a: ["Because interrupts cannot access the UART peripheral", "Because it is generally not re-entrant and it makes the interrupt enormously long", "Because the format string cannot be placed in flash", "Because the stack in handler mode is too small for any function call"],
+      c: 1,
+      why: "An ISR should enqueue a small event id and let printing happen later where blocking is survivable." },
+
+    { q: "What is the relative cost of the common tracing instruments?",
+      a: ["They are all roughly equivalent", "printf costs milliseconds, ITM or RTT cost microseconds, and toggling a pin costs nanoseconds", "A pin is slowest because it needs an external instrument", "RTT is slowest because it copies memory"],
+      c: 1,
+      why: "Choose by how small the thing you are measuring is. For 'how long, how often, in what order', a pin and a logic analyser is the correct instrument." },
+
+    { q: "How does SEGGER RTT get data out without an extra pin?",
+      a: ["It modulates the SWCLK line", "It writes to a ring buffer in RAM which the probe finds by scanning memory and reads while the core runs", "It uses the UART peripheral in a special mode", "It stores data in flash and reads it after a reset"],
+      c: 1,
+      why: "That works because the debug access port is a bus master, which is the same fact that lets a debugger watch a live variable." },
+
+    { q: "What is the most common reason people give up on SWO or ITM tracing?",
+      a: ["It requires a commercial probe", "The trace clock must be configured to match the core clock, and a wrong setting produces silence or garbage rather than an error", "It only works on Cortex-M7 and above", "It conflicts with the UART peripheral"],
+      c: 1,
+      why: "Getting it right once makes a microsecond-cost channel available forever." },
+
+    { q: "Why should every log line carry a timestamp?",
+      a: ["To satisfy MISRA directives on traceability", "Because a log without time cannot show a timing bug, which is what most embedded logs are being used to investigate", "Because the host tool requires it for ordering", "Because it compresses better"],
+      c: 1,
+      why: "A free-running timer or DWT CYCCNT costs a single read, and the delta between lines is usually the actual answer." },
+
+    { q: "A bug disappears when you add a printf and returns when you remove it. What should you conclude and do?",
+      a: ["The printf is a valid workaround and should be kept", "It is a timing or concurrency bug: replace the printf with an equal-length delay to find out which, then fix the real cause", "The compiler is miscompiling the function", "The UART peripheral is interfering with the peripheral under test"],
+      c: 1,
+      why: "If a delay keeps it away, it is timing, and you now know how much slack was needed. If it returns, the printf was serialising two paths, so it is concurrency." },
+
+    { q: "Why is shipping a delay that makes a bug go away a genuine hazard rather than untidiness?",
+      a: ["Because delays consume power unnecessarily", "Because the timing that hides the bug is accidental, so it changes with a compiler version, an optimisation flag or a busier bus, and the defect reappears in the field", "Because MISRA forbids busy waiting", "Because it makes the watchdog period harder to choose"],
+      c: 1,
+      why: "A delay that fixes a bug is a bug you have not found yet." },
+  ],
+
+  /* ---------------------------------------------- 62-scope-and-logic-analyser --- */
+  "62-scope-and-logic-analyser": [
+    { q: "What question is a logic analyser the right instrument for?",
+      a: ["Whether an edge is fast enough for the bus speed", "What was said on the wire and in what order, across many channels, with protocol decoding", "Whether the supply rail dips when a relay closes", "Whether ringing could be false-triggering an input"],
+      c: 1,
+      why: "A scope answers whether a signal is electrically healthy; an analyser answers what the bits said and when." },
+
+    { q: "Why is a cheap USB logic analyser usually the higher-value instrument for firmware work?",
+      a: ["It has better bandwidth than an entry-level scope", "Most firmware questions are digital and about order and timing, and it costs about twenty euro with protocol decoding included", "It can measure supply rails as well", "It does not need a ground connection"],
+      c: 1,
+      why: "The scope is what you borrow from the hardware team when the answer turns out not to be digital, and at that point you need them anyway." },
+
+    { q: "What is the most powerful trigger available to a firmware engineer?",
+      a: ["A rising-edge trigger on the clock line", "A pin toggled by your own code at the moment it detects the anomaly, with pre-trigger capture", "A protocol trigger on any address", "Automatic triggering with a long timebase"],
+      c: 1,
+      why: "It uses the one thing your firmware knows and the instrument does not: what 'wrong' means. Pre-trigger capture then records what happened before the detection." },
+
+    { q: "Why does a long crocodile ground lead on a scope probe matter?",
+      a: ["It adds resistance and attenuates the signal", "It acts as an inductor and manufactures ringing that is not present on the board", "It picks up mains hum only", "It changes the probe attenuation ratio"],
+      c: 1,
+      why: "For fast edges, use the spring ground. Otherwise you will chase a phantom that the instrument invented." },
+
+    { q: "What is the difference between a x10 and a x1 probe setting?",
+      a: ["x10 shows ten times more detail", "x10 loads the circuit ten times less and scales the reading, so the scope must be told which is fitted", "x1 has ten times the bandwidth", "They differ only in the connector type"],
+      c: 1,
+      why: "A signal can look clean on x10 and ring on x1 because of loading, and a wrong setting makes every voltage reading out by a factor of ten." },
+
+    { q: "How should scope bandwidth be chosen?",
+      a: ["Equal to the clock frequency of the signal", "About five times the frequency content of the edge of interest, since an under-bandwidth scope displays a fast edge as much slower than it is", "Equal to the sample rate divided by two", "It does not matter for digital signals"],
+      c: 1,
+      why: "The same logic applies to an analyser's sample rate: 24 MS/s is fine for a 1 MHz SPI clock and useless for a 20 MHz one." },
+
+    { q: "Which capture most quickly explains an RS-485 node whose last character is truncated?",
+      a: ["The data lines alone at high sample rate", "The data lines together with the driver-enable pin", "The supply rail, AC-coupled", "The MCU clock output on MCO"],
+      c: 1,
+      why: "Releasing the driver enable too early truncates the last character and too late collides with the reply. It is the commonest RS-485 fault and instantly visible." },
+
+    { q: "Why look at a supply rail AC-coupled while a relay or motor switches?",
+      a: ["To measure the average current draw", "Because a dip of a few hundred millivolts explains resets, drifting ADC readings and locked-up buses, and no firmware change can fix it", "To check the regulator's efficiency", "To verify the PWM frequency"],
+      c: 1,
+      why: "It is the measurement that ends a two-week argument about whose fault the intermittent failure is." },
+
+    { q: "What should you do when software and hardware disagree about what happened on a wire?",
+      a: ["Add retries in firmware until the failure rate becomes acceptable", "Measure the wire before changing either side, because the measurement costs minutes and settles the question", "Replace the suspect component", "Slow the bus down until it works"],
+      c: 1,
+      why: "Arriving with a capture and a number is a completely different conversation from 'your board does not work'." },
+
+    { q: "Why should a capture be saved and annotated rather than photographed on a phone?",
+      a: ["Because photographs lose colour accuracy", "Because a saved session is evidence that can be attached to a defect report and reopened months later, while a photo is a memory", "Because instruments cannot display old captures", "Because the file size is smaller"],
+      c: 1,
+      why: "It is what turning an accusation into a fact looks like at the bench." },
+  ],
+
+  /* ------------------------------------------------------ 63-reading-a-schematic --- */
+  "63-reading-a-schematic": [
+    { q: "Two lines with the same net label appear on different sheets of a schematic. What does that mean?",
+      a: ["They are different signals with a coincidental name", "They are the same net, electrically connected", "They are connected only if a dot is drawn", "They are connected through an off-sheet resistor"],
+      c: 1,
+      why: "Searching a PDF for a net name is how you follow a signal, and it is far faster than tracing lines across sheets." },
+
+    { q: "What does DNP beside a component mean, and why does it matter to firmware?",
+      a: ["Do not probe: the node is sensitive to loading", "Do not populate: the component is drawn but not fitted, so a pull-up the schematic shows may not exist on your board", "Dual net path: the component is duplicated elsewhere", "Deferred new part: the component is on order"],
+      c: 1,
+      why: "The BOM and the assembly drawing are the authority, not the schematic, and the empty pad is visible on the board." },
+
+    { q: "Which check should firmware make on a schematic before a board is laid out?",
+      a: ["That decoupling capacitors are correctly valued", "That every peripheral function is on a pin that supports it in the datasheet's alternate-function table", "That trace widths suit the current", "That the connectors are correctly keyed"],
+      c: 1,
+      why: "It is pure firmware knowledge, it is free before layout and impossible after, and it is the most valuable contribution firmware makes to a schematic review." },
+
+    { q: "Why can a 3.3 V output driving a 5 V input fail intermittently even though nothing is damaged?",
+      a: ["The 5 V input draws too much current from the output", "The output may not reach the 5 V device's logic-high threshold, so the behaviour varies with temperature and device", "The output is not five-volt tolerant", "The signal is inverted by the level difference"],
+      c: 1,
+      why: "Checking the voltage on the net, and the thresholds at both ends, is one of the six pre-driver questions." },
+
+    { q: "On an I2C bus, what does the pull-up resistor value determine?",
+      a: ["The bus address range available", "The rise time, and therefore the maximum usable bus speed", "Whether the bus is open-drain or push-pull", "The number of devices that can be attached"],
+      c: 1,
+      why: "A slow rise time with weak pull-ups is a classic cause of a device that answers nine messages in ten." },
+
+    { q: "A 24 V field input reaches the MCU through an opto-isolator. What should firmware assume?",
+      a: ["The pin reads 1 when the field signal is active", "The signal is probably inverted, so the inversion belongs in one named function in the hardware layer", "The input needs an internal pull-down", "The input can be read as an analogue value"],
+      c: 1,
+      why: "Reading the inversion off the schematic once, and naming it once, stops it being sprinkled through the application as scattered negations." },
+
+    { q: "An I2C sensor does not respond at all. What should be checked on the schematic first?",
+      a: ["Whether the sensor shares a bus with a faster device", "How its address-select pins are strapped, since that sets the address", "Whether the pull-ups are on the correct rail", "Whether the sensor is on an even-numbered sheet"],
+      c: 1,
+      why: "Half of 'the sensor does not answer' is a wrong address, and the schematic is where that address is decided." },
+
+    { q: "What must be true of an output that has to stay off between power-on and firmware initialisation?",
+      a: ["The firmware must configure it in the first lines of main", "The board needs an external pull resistor, because pins are inputs until configured", "The bootloader must drive it", "The option bytes must define its reset state"],
+      c: 1,
+      why: "A window of a few milliseconds where a relay or a driver enable is undefined is a hardware requirement, not a firmware one." },
+
+    { q: "Why record the board revision in commit messages and defect reports?",
+      a: ["To satisfy configuration management audits", "Because a bug that reproduces on one unit and not another may be a difference in the boards rather than in the code, and that context cannot be recovered later", "Because the revision determines the compiler version", "Because CI needs it to select the right binary"],
+      c: 1,
+      why: "The schematic is intent and the board is fact, and units in a lab are frequently different revisions with undocumented bodge wires." },
+
+    { q: "What should firmware ask for on a new board, before layout, that costs nothing then and is impossible later?",
+      a: ["A faster microcontroller", "Debug access on a header, test points on the buses, a recovery path such as BOOT0, and one or two spare pins brought out", "Larger decoupling capacitors", "A second power regulator"],
+      c: 1,
+      why: "A spare pin on a test point pays for itself the first time you need to time an ISR on a customer's machine." },
+  ],
+
+  /* ------------------------------------------------------- 64-testing-firmware --- */
+  "64-testing-firmware": [
+    { q: "What makes off-target unit testing of firmware possible?",
+      a: ["A simulator that emulates the microcontroller", "Layering, so the device and application code never mentions a register and compiles against a fake hardware layer on the host", "Compiling with the vendor HAL in a special host mode", "Running the tests under an RTOS port for Linux"],
+      c: 1,
+      why: "Link-time substitution or a struct of function pointers provides the seam, and the host build doubles as the architecture check." },
+
+    { q: "Which parts of a firmware codebase give the best return from host tests?",
+      a: ["Driver register sequences", "Protocol encode and decode, state machines, scaling and units, and buffers or queues", "Interrupt priority configuration", "Clock tree initialisation"],
+      c: 1,
+      why: "That is where the bugs actually are, and none of them need silicon to exercise." },
+
+    { q: "Why build a test fake from captured bus traffic rather than from the datasheet?",
+      a: ["Because captured traffic is faster to write", "Because a hand-written mock encodes your assumption, so a test against it proves only that your code agrees with your belief", "Because the datasheet is usually out of date", "Because captured traffic includes timing information"],
+      c: 1,
+      why: "The mock written from the same misunderstanding as the driver passes forever while the board does not work." },
+
+    { q: "What is the purpose of keeping at least one on-target test per driver?",
+      a: ["Coverage metrics for the safety case", "To catch exactly the class of error where the mock and the driver share the same wrong assumption", "To measure interrupt latency", "To satisfy the integration test requirement of ASPICE"],
+      c: 1,
+      why: "Its job is not coverage but contact with the real device." },
+
+    { q: "What does record and replay give a firmware team?",
+      a: ["A way to run tests without a compiler", "A field failure turned into a permanent regression test, by replaying captured bytes into the parser", "Automatic generation of test cases from requirements", "A means of profiling the parser's speed"],
+      c: 1,
+      why: "It is probably the cheapest quality improvement available to a firmware team." },
+
+    { q: "Why is property testing with random input particularly valuable for a frame parser?",
+      a: ["It replaces the need for hand-written cases", "It asserts invariants such as never reading outside the buffer and always resynchronising, across inputs nobody would think to write", "It measures worst-case execution time", "It proves conformance to the protocol specification"],
+      c: 1,
+      why: "Run on the host under AddressSanitizer, which is free there and impossible on the target." },
+
+    { q: "Which tests find the defects that most often reach customers?",
+      a: ["Unit tests with high line coverage", "Soak tests and fault injection: pulling the cable mid-transfer, browning out the supply, cutting power during a flash update", "Static analysis of the whole codebase", "Integration tests on a HIL rig"],
+      c: 1,
+      why: "Every one of those is either a defined behaviour in a requirement or an accident waiting for a customer, and almost nobody runs them." },
+
+    { q: "What is HIL testing?",
+      a: ["Running the firmware on a PC with simulated peripherals", "The real device wired to a rig that simulates its inputs and loads, running scripted scenarios automatically", "Testing with the debugger attached and breakpoints scripted", "High-integrity linting of the source"],
+      c: 1,
+      why: "In automotive it is a standard bench with restbus simulation; in a machinery company it is often a homemade panel with switches, and it counts just the same." },
+
+    { q: "How should code coverage be treated on a firmware project?",
+      a: ["As the primary quality target, aiming for 100 percent", "As a diagnostic for finding unexercised code, since chasing a percentage produces tests that execute without asserting", "As irrelevant, because embedded code cannot be instrumented", "As a substitute for review in safety projects"],
+      c: 1,
+      why: "Safety standards do require coverage evidence, including MC/DC at high integrity levels, but the reason to write a test is a behaviour worth protecting." },
+
+    { q: "What is the first step of a firmware CI pipeline, and why does it carry so much of the value?",
+      a: ["Running the on-target test suite nightly", "Building both the firmware and the host test binary on every push with warnings as errors, since the host build is also the layering check", "Publishing code coverage reports", "Running static analysis on changed files"],
+      c: 1,
+      why: "If the host build stops compiling, the vendor HAL has leaked into a layer that should not know about it." },
+  ],
+
+  /* ------------------------------------------------------- 65-misra-and-safety --- */
+  "65-misra-and-safety": [
+    { q: "What is the purpose of a coding standard like MISRA C?",
+      a: ["To enforce a consistent visual style across a team", "To restrict legal but hazardous or ambiguous constructs so the behaviour of the code can be argued about with confidence", "To make code portable between compilers", "To reduce compilation time"],
+      c: 1,
+      why: "The constructs are not forbidden because they never work, but because certainty is worth more than freedom when a mistake could hurt somebody." },
+
+    { q: "What are the three MISRA rule categories?",
+      a: ["Critical, major and minor", "Mandatory, required and advisory", "Error, warning and note", "Level 1, level 2 and level 3"],
+      c: 1,
+      why: "Mandatory permits no deviation, required permits a documented and approved one, and advisory is a recommendation. Directives are about process and cannot be fully checked by a tool." },
+
+    { q: "Why does memory-mapped register access require a documented MISRA deviation?",
+      a: ["Because volatile is not permitted by MISRA", "Because it is a pointer-to-integer conversion, which the standard restricts", "Because register addresses are magic numbers", "Because it requires inline assembly"],
+      c: 1,
+      why: "Deviations are a normal part of using MISRA. A project claiming zero deviations either touches no hardware or is not being honest." },
+
+    { q: "What makes a deviation acceptable rather than a licensed defect?",
+      a: ["Approval by a senior engineer", "A written rationale naming what the rule protects against, why that risk is absent here, and what controls it instead", "A comment in the source beside the violation", "Evidence that the tool cannot be configured to ignore it"],
+      c: 1,
+      why: "If the argument cannot be written in three sentences, it is usually a defect being waved through before a deadline." },
+
+    { q: "Where should a team start with static analysis?",
+      a: ["A commercial tool certified for the relevant safety standard", "The compiler, with -Wall -Wextra -Wconversion and -Werror in CI, since it is free, already installed and catches much of it", "A MISRA checker run manually before each release", "Abstract interpretation over the whole codebase"],
+      c: 1,
+      why: "A project that is not warning-clean cannot usefully add another tool, because the signal is already buried." },
+
+    { q: "How do static analysis and sanitisers relate?",
+      a: ["Sanitisers replace static analysis on modern toolchains", "They are complements: sanitisers run the code and find things no static tool can, and they run free in host tests", "Static analysis is only needed where sanitisers cannot run", "They find the same defects by different means"],
+      c: 1,
+      why: "AddressSanitizer and UndefinedBehaviorSanitizer on the off-target build are one of the cheapest additions a firmware project can make." },
+
+    { q: "What usually happens when an analyser is introduced to a mature codebase with thousands of findings?",
+      a: ["The team fixes them steadily until the count reaches zero", "The number never falls, and a report nobody reads becomes worse than no report because it looks like diligence", "The tool is reconfigured to be stricter", "The findings are automatically fixed by the tool"],
+      c: 1,
+      why: "The workable approach is to baseline current findings, fail the build only on new ones, and burn the baseline down deliberately." },
+
+    { q: "What question distinguishes a genuine fix from silencing a tool?",
+      a: ["Does the change reduce the total number of findings?", "Does this cast make the behaviour defined, or does it only make the tool quiet?", "Was the change reviewed by a second engineer?", "Does the construct still compile without warnings at -O0?"],
+      c: 1,
+      why: "Casting away an implicit-conversion warning frequently discards exactly the information the rule existed to preserve." },
+
+    { q: "Which standard and scale applies to automotive functional safety?",
+      a: ["IEC 61508 with SIL 1 to 4", "ISO 26262 with ASIL A to D, derived from severity, exposure and controllability", "ISO 13849 with performance levels a to e", "DO-178C with design assurance levels A to E"],
+      c: 1,
+      why: "IEC 61508 is the general parent standard, ISO 13849 covers machinery, and propulsion work commonly sits at ASIL B or above." },
+
+    { q: "Which of these does an integrity level actually oblige a team to produce?",
+      a: ["A formal proof of program correctness", "Hazard analysis, bidirectional traceability, a qualified toolchain, coverage evidence, in-product diagnostics and a defined safe state", "Certification of every engineer on the project", "Redundant hardware for every function"],
+      c: 1,
+      why: "Nothing on that list is exotic: it is what a well-run project does informally, made explicit, traceable and auditable." },
+
+    { q: "What is the honest limitation of a coding standard?",
+      a: ["It cannot be enforced automatically", "Compliant code can still miss a hazard entirely, because no rule about braces catches an unchecked sensor reading or an undefined safe state", "It slows development too much to be worthwhile", "It only applies to C and not to C++"],
+      c: 1,
+      why: "The rules clear language-level noise so that review and analysis can spend their attention on the design, which is where the real hazards live." },
+  ],
+
 });

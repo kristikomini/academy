@@ -18,25 +18,284 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 10 — Debugging, testing and quality <span>&rsaquo;</span> Chapter 60</p>
+<p class="crumbs">Part 10 &mdash; Debugging, testing and quality <span>&rsaquo;</span> Chapter 60</p>
 <h1>The debugger: SWD, breakpoints, and why they lie</h1>
-<p class="lede">ST-LINK, J-Link and OpenOCD. Hardware breakpoints, watchpoints, and how stopping a core changes the behaviour you were trying to observe.</p>
+<p class="lede">
+  Two wires that can stop a processor mid-instruction and read its memory. What that buys you, what
+  it costs, and the category of bug it cannot see &mdash; because halting a core changes the thing you
+  were trying to observe.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p>This chapter answers <em>"Collaborare con il team hardware per il debug e la validazione dei sistemi"</em> &mdash; a line that appeared in the adverts this course was built from.</p>
+  <p>
+    This chapter answers <em>&ldquo;Collaborare con il team hardware per il debug e la validazione dei
+    sistemi&rdquo;</em> &mdash; a line that appeared in the adverts this course was built from, and one
+    of only two that names debugging directly. It is the software half of that sentence;
+    <a href="62-scope-and-logic-analyser.html">chapter 62</a> is the half you do standing next to the
+    hardware engineer.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="swd">What SWD actually is</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Inside the chip, next to the processor, there is a small piece of hardware whose only job is to
+    let an outside tool look in. It has its own two wires to the outside world: one for data, one for
+    a clock.
+  </p>
+  <p>
+    Through those two wires a tool can read and write any memory address, stop the processor, restart
+    it, and run it one instruction at a time &mdash; without any help from your program at all. That
+    last part matters: it works even when your program has crashed completely.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    <strong>SWD</strong> &mdash; Serial Wire Debug &mdash; is ARM's two-pin replacement for JTAG:
+    <code>SWDIO</code> and <code>SWCLK</code>, plus ground and a reference to the target voltage, and
+    optionally <code>NRST</code> and <code>SWO</code>. It reaches the debug access port, which is a
+    bus master in its own right on the
+    <a href="21-whats-on-the-die.html">bus matrix</a> &mdash; which is why a debugger can read RAM
+    while the core is running, and why that read competes with your code for bus bandwidth.
+  </p>
+  <p>
+    The hardware inside the core, all of it architecturally defined and therefore the same on every
+    vendor's Cortex-M:
+  </p>
+  <ul>
+    <li><strong>FPB</strong>, the breakpoint unit. <strong>Hardware breakpoints are a small, fixed
+        number</strong> &mdash; typically 6 on an M4, 2 on an M0 &mdash; because each one is a
+        comparator in silicon. Exceed them and the IDE either refuses or silently falls back to
+        software breakpoints, which work by patching a <code>BKPT</code> instruction into the code and
+        therefore <em>only work in RAM</em>, not in flash.</li>
+    <li><strong>DWT</strong>, the watchpoint and trace unit: break on a data <em>address</em> being
+        read or written (typically four of them), plus the free-running
+        <strong><code>CYCCNT</code></strong> cycle counter, which is the cheapest accurate timing
+        instrument you have (<a href="43-timing-and-jitter.html">chapter 43</a>).</li>
+    <li><strong>ITM</strong>, which feeds <a href="61-printf-and-tracing.html">SWO tracing</a>.</li>
+  </ul>
+  <p>
+    The tools: <strong>ST-LINK</strong> on every Nucleo and Discovery board, and detachable for a
+    custom board; <strong>J-Link</strong>, faster, with better flash algorithms and RTT; and
+    <strong>OpenOCD</strong> plus GDB underneath most of them, which is what you reach for when you
+    want scripting or a build server. Knowing that the IDE is a front end for GDB matters because the
+    GDB command line does things no IDE button does, and because a CI job cannot click.
+  </p>
+  <p>
+    Two options worth knowing before you need them. <strong>Connect under reset</strong> holds NRST
+    low while attaching, which is the only way onto a board whose firmware reconfigures the SWD pins
+    or enters a low-power mode immediately (<a href="31-gpio.html">chapter 31</a>). And
+    <strong>attach without reset</strong> connects to a running system without disturbing it, which is
+    how you inspect a machine that has been misbehaving for three hours without losing its state.
+  </p>
+</div>
+
+<h2 id="using">Using it well</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Most people use a debugger in one way: put a breakpoint somewhere, look at variables, step
+    forward. That is the least powerful thing it does.
+  </p>
+  <p>
+    The stronger moves are: stop when a <em>value</em> changes rather than when a line is reached;
+    look at the peripheral registers rather than at your variables; and look at the list of function
+    calls that got you here, which usually answers the question on its own.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>Watchpoints are the underused feature.</strong> &ldquo;This variable becomes 0xFF and
+        I cannot find who does it&rdquo; is a five-minute problem with a data watchpoint and an
+        afternoon without one. It is also the fastest way to catch a
+        <a href="12-stack-overflow.html">stack overflow</a> eating a global.</li>
+    <li><strong>The peripheral register view is the ground truth.</strong> Every claim in Parts 4 and
+        5 of this course &mdash; the clock is not enabled, the alternate function is wrong, the
+        configuration did not take &mdash; is confirmed or refuted there in seconds. Registers cannot
+        be wrong about what the hardware believes.</li>
+    <li><strong>The call stack, and the fault path.</strong> After a hard fault the stacked frame gives
+        you the faulting PC (<a href="22-cortex-m.html">chapter 22</a>); a decent IDE will unwind it
+        for you if you point it at the right stack.</li>
+    <li><strong>Read memory while running.</strong> Because the debug port is a bus master, most tools
+        can show a live variable without halting &mdash; enormously better than a breakpoint for
+        anything periodic.</li>
+    <li><strong>Scripted sessions.</strong> A GDB script that attaches, dumps a fault record from
+        no-init RAM, and detaches turns a field board into a one-command diagnostic, and it can run
+        from a build server.</li>
+  </ul>
+  <p>
+    And the habit that separates a fast engineer from a slow one: <strong>form a hypothesis before
+    setting a breakpoint.</strong> A debugger answers questions; it does not generate them. Stepping
+    through code hoping to notice something is the slowest debugging technique there is, and it is the
+    default for most people. State what you expect to be true, pick the one observation that would
+    disprove it, and go get exactly that.
+  </p>
+</div>
+
+<h2 id="limits">The category it cannot see</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A debugger works by stopping time for the processor. But the world outside the chip does not stop:
+    a motor keeps turning, bytes keep arriving on a serial line, a timer keeps counting.
+  </p>
+  <p>
+    So the moment you stop, the situation you were investigating is gone. For anything to do with
+    timing, the act of looking destroys the thing being looked at.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Concretely, what breaks when you halt:
+  </p>
+  <ul>
+    <li><strong>Peripherals keep running by default.</strong> A UART overruns, a CAN controller's
+        <a href="49-can-and-canopen.html">error counters</a> climb to bus-off, DMA completes into a
+        buffer you are watching, and a motor keeps spinning with its last PWM value &mdash; which is
+        a safety issue, not an inconvenience. There are <em>debug freeze</em> bits for timers and the
+        watchdog, and you should set them; there is nothing equivalent for the physical world.</li>
+    <li><strong>The watchdog resets you</strong> unless frozen, so long inspections end in a reboot
+        (<a href="28-low-power-and-watchdog.html">chapter 28</a>).</li>
+    <li><strong>Heisenbugs.</strong> Any race, any missed-deadline bug, any interrupt-priority
+        inversion changes character or disappears when single-stepped. If a bug goes away under the
+        debugger, that is information: it is timing-related, and you should switch instruments to
+        <a href="61-printf-and-tracing.html">tracing</a> or a
+        <a href="62-scope-and-logic-analyser.html">pin and a scope</a>.</li>
+    <li><strong>Low-power modes do not behave.</strong> SWD keeps the core powered, so current
+        measurements are meaningless and some Stop-mode paths simply do not execute as they would in
+        production.</li>
+    <li><strong>Optimised code lies visually.</strong> At <code>-O2</code> variables live in registers
+        and are &ldquo;optimised out&rdquo;, and the program counter jumps around because statements
+        were reordered. That is not a broken debugger; it is the compiler doing its job, and
+        <code>-Og</code> exists as the compromise.</li>
+  </ul>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>swd, jtag, st-link, j-link, openocd, gdb, hardware, breakpoint, watchpoint, limit</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>The bug only happens in the field, and every attempt to attach a debugger makes it go
+    away &mdash; so the investigation stalls on the instrument rather than on the problem.</strong>
+  </p>
+  <p>
+    This is the central limitation of interactive debugging in embedded work, and the way out is to
+    stop trying to catch the bug live and instead <strong>make the system record its own
+    evidence</strong>. The pattern, which is worth building once and carrying between projects:
+  </p>
+  <ul>
+    <li>A <strong>no-init RAM region</strong> (a linker section that startup does not clear,
+        <a href="36-build-and-linker-script.html">chapter 36</a>) holding a small crash record: the
+        stacked PC and LR, CFSR, the reset cause, uptime, and a few application-defined slots such as
+        the current state-machine state.</li>
+    <li>A <strong>fault handler and a watchdog-reset path that fill it in</strong>, then reset.</li>
+    <li>A <strong>ring buffer of the last N events</strong> &mdash; not text, just small numbered
+        records with a timestamp &mdash; also in no-init RAM.</li>
+    <li>A way to <strong>read all of it back over the normal interface</strong> after the restart: a
+        diagnostic command on the <a href="50-modbus-rtu.html">field bus</a>, or a
+        <a href="49b-uds.html">ReadDataByIdentifier</a> in automotive.</li>
+  </ul>
+  <p>
+    That costs a day to build and turns &ldquo;it crashed at the customer&rsquo;s site on Tuesday&rdquo;
+    into an address and a sequence of events, with no debugger present and nobody driving anywhere.
+    It is also the single most convincing thing a junior can describe having built, because it shows
+    you understand that the debugger is one instrument among several rather than the definition of
+    debugging.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> A Nucleo has the debugger built in, so all of this is free.</p>
+  <pre><code>1. Set a data watchpoint, not a breakpoint. Declare a global, corrupt
+   it from two different places, and let the debugger tell you which
+   one did it. Most people have never done this once; it is the
+   highest-value five minutes in this chapter.
+
+2. Find the hardware breakpoint limit on your part. Add breakpoints
+   one at a time until the IDE complains or starts behaving oddly.
+   Knowing the number (6 on most M4s, 2 on an M0) explains a lot of
+   confusing IDE behaviour.
+
+3. Open the peripheral register view and re-do one bug from chapter
+   25 deliberately: comment out a clock enable, then find it in the
+   register view rather than in the source. Thirty seconds versus
+   thirty minutes.
+
+4. Observe the Heisenbug. Write a tight loop that increments a
+   counter, and an ISR at 10 kHz that increments another. Break,
+   step, continue -- and watch the relationship between the two
+   counters become nonsense. That is why timing bugs need a different
+   instrument.
+
+5. Build the crash recorder. A no-init section, a fault handler that
+   stores PC, LR, CFSR and the reset cause, and a UART command that
+   prints the last record. Then crash the board on purpose with a
+   null pointer, reset it, and read the record back. Keep this code
+   forever; paste it into every project.
+
+6. Then do it from the command line: openocd plus arm-none-eabi-gdb,
+   a script that attaches, dumps that memory region and exits. Now a
+   field board is a one-command diagnostic and CI could run it.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>SWD is two wires to a debug port that is itself a bus master</strong>, which is why it
+        can read RAM while the core runs.</li>
+    <li><strong>Hardware breakpoints are a small fixed number</strong>, and software breakpoints only
+        work in RAM.</li>
+    <li><strong>Watchpoints answer &ldquo;who wrote this variable?&rdquo;</strong> in minutes. Use
+        them.</li>
+    <li><strong>The peripheral register view is ground truth.</strong> Check it before rereading your
+        source.</li>
+    <li><strong>Form a hypothesis before setting a breakpoint.</strong> A debugger answers questions;
+        stepping hopefully is the slowest method there is.</li>
+    <li><strong>Halting does not stop the world.</strong> Motors turn, UARTs overrun, CAN goes
+        bus-off.</li>
+    <li><strong>Set the debug freeze bits</strong> for timers and the watchdog, and remember there is
+        no freeze bit for a machine.</li>
+    <li><strong>If the bug disappears under the debugger, it is a timing bug.</strong> Change
+        instrument rather than technique.</li>
+    <li><strong>Current measurements with SWD attached are meaningless.</strong></li>
+    <li><strong>&ldquo;Optimised out&rdquo; is the compiler working, not the debugger failing.</strong>
+        Use <code>-Og</code>.</li>
+    <li><strong>Make the system record its own evidence</strong> &mdash; crash record and event ring in
+        no-init RAM, readable over the normal interface. That is what works in the field.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Un bug si presenta solo in campo e col debugger sparisce. Come procede?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Intanto quello per me &egrave; gi&agrave; un&rsquo;informazione: se sparisce quando lo
+    guardo, &egrave; un problema di tempi, quindi cambio strumento invece di insistere. Fermare il
+    core non ferma il mondo &mdash; il motore continua a girare, la UART va in overrun, il CAN arriva
+    a bus off &mdash; quindi col debugger interattivo quel tipo di difetto non lo prendo. Quello che
+    faccio &egrave; far registrare al sistema le proprie prove: una regione di RAM non inizializzata,
+    che lo startup non azzera, con dentro un record di crash &mdash; PC e LR impilati, CFSR, causa del
+    reset, uptime, lo stato della macchina a stati &mdash; e un ring buffer degli ultimi eventi, non
+    testo ma record piccoli con timestamp. Il fault handler e il percorso di reset da watchdog lo
+    riempiono, e poi lo rileggo dopo il riavvio con un comando diagnostico sulla stessa interfaccia
+    che il dispositivo ha gi&agrave;: un blocco Modbus, o un ReadDataByIdentifier in automotive.
+    Costa una giornata e trasforma &lsquo;&egrave; crashato dal cliente marted&igrave;&rsquo; in un
+    indirizzo e una sequenza di eventi, senza mandare nessuno sul posto. Il debugger lo uso
+    eccome, ma soprattutto per i watchpoint &mdash; chi mi sta scrivendo questa variabile &mdash; e per
+    la vista dei registri delle periferiche, che &egrave; la verit&agrave;: se un registro rileggo
+    zero, il problema &egrave; il clock, non il mio codice.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

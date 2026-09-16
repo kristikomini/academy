@@ -18,25 +18,275 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 10 — Debugging, testing and quality <span>&rsaquo;</span> Chapter 62</p>
+<p class="crumbs">Part 10 &mdash; Debugging, testing and quality <span>&rsaquo;</span> Chapter 62</p>
 <h1>The oscilloscope and the logic analyser</h1>
-<p class="lede">Two different instruments for two different questions. Triggering, probing, and reading a decoded bus next to an analogue edge.</p>
+<p class="lede">
+  Two instruments that look similar and answer opposite questions. One tells you what the voltage is
+  doing; the other tells you what the bits are saying. Knowing which question you have is most of
+  knowing how to find the fault &mdash; and it is the conversation the advert calls
+  <em>collaborare con il team hardware</em>.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p>This chapter answers <em>"Collaborare con il team hardware per il debug e la validazione dei sistemi"</em> &mdash; a line that appeared in the adverts this course was built from.</p>
+  <p>
+    This chapter answers <em>&ldquo;Collaborare con il team hardware per il debug e la validazione dei
+    sistemi&rdquo;</em> &mdash; a line that appeared in the adverts this course was built from. That
+    collaboration happens standing at a bench with an instrument between you, and being able to drive
+    it, or at least to read what it shows, is what makes you a participant rather than a spectator.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="which">Which instrument answers which question</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A logic analyser only asks one thing about a wire: is it high or low? It asks that about many
+    wires at once, for a long time, and it can turn the pattern back into the message being sent.
+  </p>
+  <p>
+    An oscilloscope asks a harder question: exactly what voltage is on this wire, at every instant? It
+    shows the shape &mdash; how fast the edge is, whether it overshoots, whether the supply dips when
+    something switches on.
+  </p>
+  <p>
+    So: a logic analyser answers &ldquo;what was said, and when&rdquo;. A scope answers &ldquo;is this
+    signal actually healthy&rdquo;.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <table>
+    <thead><tr><th>Question</th><th>Instrument</th></tr></thead>
+    <tbody>
+      <tr><td>Did the master send the right register address?</td><td>Logic analyser, with protocol decoding</td></tr>
+      <tr><td>How long does my ISR take, and how often does it run?</td><td>Logic analyser plus a pin (<a href="61-printf-and-tracing.html">chapter 61</a>)</td></tr>
+      <tr><td>Why does the slave respond only sometimes?</td><td>Both: analyser to see the traffic, scope to see whether the edges are clean</td></tr>
+      <tr><td>Is this rise time too slow for the bus speed?</td><td>Scope</td></tr>
+      <tr><td>Does the 3.3 V rail dip when the relay closes?</td><td>Scope, AC-coupled, on the rail</td></tr>
+      <tr><td>Is there ringing that could be false-triggering an input?</td><td>Scope</td></tr>
+      <tr><td>Which of twelve signals changed first?</td><td>Logic analyser</td></tr>
+    </tbody>
+  </table>
+  <p>
+    The practical difference in cost and reach: a <strong>cheap USB logic analyser</strong> (about
+    twenty euro) gives you eight channels at 24 MS/s with software decoding of
+    <a href="46-uart.html">UART</a>, <a href="48-spi-and-i2c.html">SPI and I&sup2;C</a>,
+    <a href="49-can-and-canopen.html">CAN</a> and more &mdash; and for firmware work it is the
+    higher-value instrument by a distance, because most firmware questions are digital and about
+    order and timing. A scope is what you borrow from the hardware team when the answer turns out not
+    to be digital, and the moment it does, you need them anyway.
+  </p>
+  <p>
+    Key numbers to be able to state: a scope's <strong>bandwidth</strong> should be about five times
+    the fastest edge frequency of interest (a 100 MHz scope will show a 10 ns edge as much slower than
+    it is); sample rate should be several times the bandwidth; and a logic analyser must sample
+    several times faster than the signal it is capturing, so 24 MS/s is fine for a 1 MHz SPI clock and
+    useless for a 20 MHz one.
+  </p>
+</div>
+
+<h2 id="triggering">Triggering is the whole skill</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The instrument cannot record forever. The art is telling it exactly when to start recording, so
+    that the moment you care about is in the middle of the picture instead of never captured at all.
+  </p>
+  <p>
+    And the best trigger is often one your own firmware provides: toggle a spare pin at the moment the
+    error is detected, and tell the instrument to capture around that pin.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Triggers, in increasing order of usefulness:
+  </p>
+  <ul>
+    <li><strong>Edge</strong> &mdash; the default. Fine for a repetitive signal, useless for a rare
+        event.</li>
+    <li><strong>Pulse width</strong> &mdash; trigger on a pulse <em>narrower</em> than X, which is how
+        you catch a glitch you cannot see at a zoomed-out timebase.</li>
+    <li><strong>Protocol trigger</strong> &mdash; on a specific I&sup2;C address, a UART byte, a CAN
+        identifier. When the instrument supports it, this turns a needle-in-a-haystack into a
+        one-click capture.</li>
+    <li><strong>A firmware trigger pin</strong>, and this is the technique worth taking away from the
+        chapter. Where your code detects the anomaly &mdash; a CRC failure, a timeout, an unexpected
+        state &mdash; toggle a dedicated pin. Trigger the instrument on that pin with
+        <strong>pre-trigger capture</strong> so the recording contains what happened <em>before</em>
+        the detection. You have then used the one thing your firmware knows and the instrument does
+        not: what &ldquo;wrong&rdquo; means.</li>
+  </ul>
+  <p>
+    Two mechanical points that cause more confusion than they should. <strong>Ground matters</strong>:
+    a long ground lead on a probe is an inductor, and it manufactures ringing that is not on the
+    board &mdash; if you are looking at fast edges, use the spring ground, not the crocodile clip.
+    And <strong>a x10 probe loads the circuit ten times less</strong> than a x1 probe, which is why
+    a signal can look clean on x10 and ring on x1, and why the scope must be told which is fitted or
+    every voltage reading is out by a factor of ten.
+  </p>
+</div>
+
+<h2 id="together">Reading a bus and a rail together</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The most useful captures are the ones with two things on the same screen: what the software
+    thought it was doing, and what the wire actually did. When they disagree, the disagreement is the
+    fault.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Captures that solve real problems, all of which you can set up yourself:
+  </p>
+  <ul>
+    <li><strong>A decoded bus beside a firmware pin.</strong> Channel 0 is your &ldquo;ISR
+        running&rdquo; pin, channels 1&ndash;3 are SPI. Now you can see that the interrupt fired 40
+        &micro;s after the byte arrived, or that two transfers overlapped, or that your handler ran
+        twice for one event.</li>
+    <li><strong>The supply rail during an event.</strong> AC-coupled, small volts-per-division, while
+        a relay closes or a motor starts. A rail that dips 400 mV explains resets, ADC readings that
+        move (<a href="33-adc-and-the-analogue-chain.html">chapter 33</a>) and I&sup2;C devices that
+        lock up &mdash; and no amount of firmware fixes it.</li>
+    <li><strong>The bus and the enable line.</strong> On RS-485
+        (<a href="45-the-physical-layer.html">chapter 45</a>), capture the driver-enable pin with the
+        data: releasing the line too early truncates the last character, too late holds the bus and
+        collides with the reply. It is the single most common RS-485 fault and it is instantly
+        visible.</li>
+    <li><strong>Two nodes that disagree.</strong> Probe the same wire at both ends of a long cable and
+        compare &mdash; reflections, missing termination and ground offset all show up as a
+        difference.</li>
+  </ul>
+  <p>
+    And the discipline that makes the capture worth something afterwards: <strong>save it and annotate
+    it</strong>. A saved capture with a one-line description is evidence in a
+    <a href="66-git-review-release.html">defect report</a> and can be reopened months later; a photo
+    of a screen taken on a phone is a memory. Free software such as the sigrok or Saleae ecosystems
+    saves sessions to a file, and attaching one to a ticket is what
+    <a href="64a-automotive-v-cycle.html">turning an accusation into a fact</a> looks like at the
+    bench.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>oscilloscope, logic, analyser, bandwidth, sample, rate, probe, ground, lead, inductance</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>Firmware is blamed for a hardware fault for two weeks, because nobody put an instrument on
+    the wire.</strong>
+  </p>
+  <p>
+    The pattern is always the same. A device answers nine messages in ten. Firmware adds retries, then
+    timeouts, then a state machine to recover; the failure rate improves and never goes away. Two
+    minutes with an analyser and a scope would have shown an I&sup2;C rise time far too slow for the
+    pull-up resistors fitted, or an RS-485 enable released one bit early, or a 5 V device whose logic
+    threshold the 3.3 V part never quite reaches.
+  </p>
+  <p>
+    The habit worth forming early: <strong>when software and hardware disagree about what happened,
+    measure the wire before changing either.</strong> The measurement costs minutes and settles the
+    question, and it changes your standing with the hardware team permanently &mdash; arriving with
+    &ldquo;here is the capture, the rise time is 2.3 &micro;s and the bus is running at 400 kHz&rdquo;
+    is a completely different conversation from &ldquo;your board does not work&rdquo;.
+  </p>
+  <p>
+    The inverse error is just as common and worth naming: <strong>assuming the instrument is
+    right.</strong> Probes lie in specific, learnable ways &mdash; a long ground lead invents ringing,
+    an under-bandwidth scope invents slow edges, a logic analyser sampling too slowly invents missing
+    pulses, and a probe on a high-impedance node changes it by being there. When a measurement is
+    surprising, check the instrument's setup before believing the surprise.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> The twenty-euro logic analyser from chapter 29 does everything here
+  except the two scope exercises.</p>
+  <pre><code>1. Decode your own bus. Put the analyser on your I2C or SPI lines,
+   capture a transaction, and turn on protocol decoding. Compare what
+   the decoder says against what your code intended to send. Doing
+   this once removes most of the mystery from chapter 48.
+
+2. Measure an ISR properly. Pin high on entry, low on exit; capture
+   for a second; read duration, period and worst case from the
+   analyser's measurements. Then add load elsewhere in the system and
+   watch the jitter appear. That is chapter 43, measured.
+
+3. Build a firmware trigger. Toggle a spare pin where your code
+   detects an error -- a CRC failure or a timeout -- and set the
+   analyser to trigger on it with pre-trigger capture. Now you have a
+   recording of what happened BEFORE the fault, which is the part
+   that matters.
+
+4. Catch a glitch with a pulse-width trigger: generate a deliberate
+   200 ns pulse once a second among normal traffic, and find it. At a
+   zoomed-out timebase it is invisible to an edge trigger.
+
+5. Prove the ground-lead effect, if you can borrow a scope. Look at a
+   fast edge with the long crocodile ground, then with the spring
+   ground. The ringing in the first is the probe, not the board --
+   and knowing that stops you chasing a phantom.
+
+6. Then look at a supply rail, AC-coupled, while switching something
+   inductive. If you see more than a few tens of millivolts of dip,
+   you have found something the firmware could never have fixed.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Logic analyser for &ldquo;what was said and when&rdquo;; scope for &ldquo;is this
+        signal healthy&rdquo;.</strong></li>
+    <li><strong>For firmware work the analyser is the higher-value instrument</strong>, and it costs
+        about twenty euro.</li>
+    <li><strong>Sample several times faster than the signal</strong>, and match scope bandwidth to the
+        edge, not to the clock.</li>
+    <li><strong>Triggering is the skill.</strong> Edge, pulse width, protocol &mdash; and best of all a
+        pin your firmware toggles when it detects the fault.</li>
+    <li><strong>Use pre-trigger capture</strong>, because the cause is before the symptom.</li>
+    <li><strong>Put a firmware pin on the same capture as the bus.</strong> The disagreement between
+        intent and wire is the fault.</li>
+    <li><strong>A long probe ground lead manufactures ringing.</strong> Use the spring ground for fast
+        edges.</li>
+    <li><strong>x10 versus x1 changes loading and scaling.</strong> Tell the scope which is
+        fitted.</li>
+    <li><strong>Look at the supply rail during switching events.</strong> Dips explain resets, ADC
+        drift and locked-up buses.</li>
+    <li><strong>Measure the wire before changing software or hardware</strong> when the two
+        disagree.</li>
+    <li><strong>Save and annotate the capture.</strong> It is evidence; a phone photo is a
+        memory.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Un dispositivo risponde solo una volta su dieci. Da dove comincia?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Prima di toccare il codice metto uno strumento sul filo, perch&eacute; se software e
+    hardware non sono d&rsquo;accordo la misura chiude la discussione in due minuti. Parto
+    dall&rsquo;analizzatore logico: catturo la transazione, attivo la decodifica del protocollo e
+    confronto quello che il decoder legge con quello che il mio codice voleva mandare. Sulla stessa
+    cattura metto anche un pin pilotato dal firmware &mdash; alto quando entro nella ISR, basso quando
+    esco, oppure un impulso nel punto in cui rilevo l&rsquo;errore &mdash; e faccio scattare il
+    trigger proprio su quello, con la cattura pre-trigger, cos&igrave; vedo cosa &egrave; successo
+    <strong>prima</strong> del guasto. Se sul digitale &egrave; tutto regolare, allora la domanda non
+    &egrave; digitale e chiedo un oscilloscopio al collega hardware: tempo di salita dell&rsquo;I2C
+    rispetto ai pull-up, ringing, e soprattutto la rail di alimentazione in AC mentre scatta un
+    rel&egrave; &mdash; un buco di qualche centinaio di millivolt spiega reset, letture ADC che
+    ballano e bus che si piantano, e nessuna riga di firmware lo risolve. E la cattura la salvo e la
+    commento, perch&eacute; allegata a una segnalazione &egrave; una prova: arrivare dicendo
+    &lsquo;ecco la traccia, il tempo di salita &egrave; 2,3 microsecondi a 400 kHz&rsquo; &egrave; una
+    conversazione diversa da &lsquo;la vostra scheda non va&rsquo;.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

@@ -18,25 +18,281 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 10 — Debugging, testing and quality <span>&rsaquo;</span> Chapter 64</p>
+<p class="crumbs">Part 10 &mdash; Debugging, testing and quality <span>&rsaquo;</span> Chapter 64</p>
 <h1>Testing firmware: off-target unit tests and HIL</h1>
-<p class="lede">Compiling your logic for the PC and testing it there, faking the hardware at a seam, and what only a real board can tell you.</p>
+<p class="lede">
+  Most of your code is ordinary C and can be compiled for a PC and tested in milliseconds. The rest
+  needs a board, and some of it needs a board wired to a machine that can pretend to be the world.
+  Knowing which is which &mdash; and where the seam between them goes &mdash; is the whole subject.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> Regional listings ask for written test plans; being able to describe a test that runs without a board is what makes CI possible at all.</p>
+  <p>
+    <strong>Not named in the anchor advert</strong>, which says <em>testare</em> once, about
+    protocols. It is here because regional listings ask for written test plans, because the automotive
+    posting in the corpus sits on <a href="64a-automotive-v-cycle.html">SWE.4 and SWE.5</a>, and
+    because being able to describe a test that runs <em>without</em> a board is what makes continuous
+    integration possible at all.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="off-target">Off-target: testing firmware on a PC</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A surprising amount of firmware has nothing to do with the hardware: a protocol parser, a state
+    machine, a scaling calculation, a ring buffer. That code is ordinary C, and ordinary C compiles
+    and runs on your laptop.
+  </p>
+  <p>
+    Testing it there takes milliseconds instead of a flash-and-watch cycle, runs on every commit
+    without a board attached, and can try a thousand awkward inputs that you would never manage by
+    hand.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The prerequisite is the layering from <a href="35-firmware-architecture.html">chapter 35</a>: if
+    the device and application layers never mention a register, they compile for the host with a fake
+    hardware layer beneath them. The seam is either link-time substitution &mdash;
+    <code>hw_i2c_stm32.c</code> for the target, <code>hw_i2c_fake.c</code> for the host &mdash; or a
+    struct of function pointers. That is not a testing trick added afterwards; it is the reason the
+    architecture is shaped that way.
+  </p>
+  <p>
+    What deserves a host test, in rough order of payoff:
+  </p>
+  <ul>
+    <li><strong>Protocol encode and decode</strong> &mdash; <a href="47-framing.html">framing</a>,
+        CRCs, <a href="50-modbus-rtu.html">Modbus</a> function codes,
+        <a href="49a-iso-tp.html">ISO-TP segmentation</a>. Feed it truncated frames, doubled bytes,
+        wrong lengths and garbage. This is where the bugs actually are, and none of them need
+        silicon.</li>
+    <li><strong>State machines</strong> &mdash; drive every transition including the illegal ones, and
+        assert the machine never reaches an undefined state.</li>
+    <li><strong>Scaling and units</strong> &mdash; the raw-count conversions from
+        <a href="33-adc-and-the-analogue-chain.html">chapter 33</a>, with the boundary values and the
+        overflow cases.</li>
+    <li><strong>Buffers and queues</strong> &mdash; full, empty, wrap, one-element, and the
+        off-by-one at every edge.</li>
+  </ul>
+  <p>
+    Frameworks: <strong>Unity</strong> with <strong>CMock</strong> (C, tiny, the conventional embedded
+    choice, often driven by Ceedling) or <strong>GoogleTest</strong> if the project is C++ and the team
+    already knows it. Both are fine; what matters far more is that the tests run from one command and
+    on every push (<a href="66-git-review-release.html">chapter 66</a>).
+  </p>
+  <p>
+    Two techniques that punch above their weight. <strong>Record and replay:</strong> capture real
+    traffic once with a <a href="62-scope-and-logic-analyser.html">logic analyser</a> or a bus log,
+    save it as a byte array, and replay it into the parser as a test. A field failure then becomes a
+    permanent regression test, which is the cheapest quality improvement available to a firmware team.
+    And <strong>property testing on the fuzzy edge:</strong> generate random byte streams into your
+    frame parser and assert that it never reads outside its buffer and always recovers
+    synchronisation. That single test finds more real defects than a dozen hand-written cases.
+  </p>
+</div>
+
+<h2 id="on-target">On target: what only the board can tell you</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The host test proves the logic is right. It cannot prove the peripheral was configured correctly,
+    that the timing holds, or that the whole thing survives a week of running.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>Driver and integration tests on the board</strong>, ideally self-checking: a loopback
+        test that ties TX to RX, an SPI transfer against a real device, a CRC of a flash sector after
+        writing it. A small test harness that runs at boot behind a jumper is worth building.</li>
+    <li><strong>Timing verification</strong> &mdash; worst-case ISR duration, loop period jitter, stack
+        high-water marks. That is <a href="43-timing-and-jitter.html">chapter 43</a>, and it belongs in
+        a report rather than in somebody's memory.</li>
+    <li><strong>Soak tests.</strong> Run for days. A leak, a counter that wraps at 49.7 days, a
+        fragmentation problem or a slow drift only appears with time, and the test is a table and
+        patience.</li>
+    <li><strong>Fault injection</strong> &mdash; the tests almost nobody runs and the ones that find
+        what ships broken: pull the cable mid-transfer, brown out the supply, short an input, remove a
+        sensor, cut power during a <a href="34-flash-and-bootloader.html">flash update</a>. Every one
+        of those is a defined behaviour in a requirement, or it is an accident waiting for a
+        customer.</li>
+    <li><strong>HIL</strong> &mdash; hardware in the loop: the real ECU wired to a rig that simulates
+        its inputs and loads, running scripted scenarios automatically. In automotive that is a
+        standard bench with restbus simulation; in a machinery company it is often a homemade panel
+        with switches and a signal generator, and it counts just the same.</li>
+  </ul>
+  <p>
+    The pyramid for firmware is flatter than the web version, and worth being able to draw: many fast
+    host tests, a moderate number of on-target integration tests, a few end-to-end tests on real
+    hardware, and a short manual checklist for the things no rig can do &mdash; a connector's feel, a
+    cabinet's temperature, a technician's workflow.
+  </p>
+</div>
+
+<h2 id="ci">Making it run by itself</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A test suite somebody has to remember to run is a test suite that stops being run. The value comes
+    when it happens automatically on every change and tells you which change broke it.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    A realistic firmware pipeline, in the order of what to build first:
+  </p>
+  <ol>
+    <li><strong>Build both targets</strong> &mdash; the firmware and the host test binary &mdash; on
+        every push, with warnings as errors. Half the value arrives here, because the host build is
+        also the <a href="35-firmware-architecture.html">layering check</a>.</li>
+    <li><strong>Run the host tests</strong>, and publish the results.</li>
+    <li><strong>Run static analysis</strong> (<a href="65-misra-and-safety.html">chapter 65</a>) and
+        publish the size and the map (<a href="36-build-and-linker-script.html">chapter 36</a>), so
+        flash consumption becomes a graph rather than a surprise.</li>
+    <li><strong>Optionally, a board on a runner.</strong> A Raspberry Pi with a probe attached,
+        flashing the artefact and running the on-target suite nightly. It is more work than people
+        expect and it is how you catch driver regressions before a release.</li>
+  </ol>
+  <p>
+    Coverage deserves one honest paragraph, because it comes up in interviews. On host tests
+    <code>gcov</code> gives you line and branch coverage cheaply, and it is genuinely useful for
+    finding code nobody exercises. It is a poor <em>target</em>: chasing a percentage produces tests
+    that execute code without asserting anything, which is worse than no test because it reports
+    green. Safety standards do demand coverage evidence, including MC/DC at the higher integrity
+    levels, and that is a real obligation &mdash; but the reason to write a test is a behaviour worth
+    protecting, not a number.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>unit, test, off, target, host, native, build, ceedling, unity, cmock</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>The mock is written from the same misunderstanding as the driver, so the test passes and
+    the board does not work.</strong>
+  </p>
+  <p>
+    You believe the sensor returns its temperature register as big-endian. You write the driver that
+    way, and you write the fake that way. The test passes forever, and the real device &mdash; which
+    is little-endian, or which needs a repeated start, or which NAKs a read that follows a write
+    without one &mdash; does not. The test proved that your code agrees with your belief, which is the
+    one thing that was never in doubt.
+  </p>
+  <p>
+    The defences, in order of strength. <strong>Build the fake from captured traffic, not from your
+    reading of the datasheet</strong> &mdash; a recorded transaction is evidence about the device,
+    whereas a hand-written mock is a copy of your assumption. <strong>Keep one on-target test per
+    driver</strong>, however small, that talks to the real part; its job is not coverage but to catch
+    exactly this class of error. And <strong>when a field defect turns out to be a wrong assumption,
+    fix the fake as well as the driver</strong>, so the regression test is real.
+  </p>
+  <p>
+    The same reasoning explains why the pyramid is flatter here than in web development: the
+    proportion of firmware behaviour that depends on something outside your program is enormous, and
+    a test suite that mocks the hardware entirely is testing a model of the world you wrote yourself.
+    This is the same failure as the <a href="28-low-power-and-watchdog.html">watchdog kicked by a
+    timer ISR</a> and the <a href="64a-automotive-v-cycle.html">green build that only proves the
+    linker ran</a>: <strong>a check driven by the same thing it is checking always reports
+    health.</strong>
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> Steps 1 to 4 need only a PC and a compiler.</p>
+  <pre><code>1. Take the framing layer from chapter 47 and compile it for your PC.
+   No test framework yet -- a main() with asserts is enough. Feed it a
+   good frame, a truncated frame, a frame with a bad CRC, and two
+   frames back to back in one buffer. If any of those four is not
+   handled, you have found a real bug in twenty minutes.
+
+2. Now add Unity, or GoogleTest, and turn those asserts into named
+   test cases with one command to run them: `make test`. The naming
+   matters more than the framework, because a failure should say what
+   broke without anyone opening the file.
+
+3. Write the property test: ten thousand random byte streams into the
+   parser, asserting it never indexes outside its buffer and always
+   resynchronises within N bytes. Run it under AddressSanitizer
+   (-fsanitize=address), which is free on the host and impossible on
+   the target. This exercise finds real defects; expect one.
+
+4. Record and replay. Capture a real Modbus or I2C exchange with the
+   logic analyser, paste the bytes into a C array, and make it a test
+   case. That is how a field failure becomes a permanent regression
+   test.
+
+5. On the board: write a self-checking loopback test for your UART
+   driver -- jumper TX to RX, send 256 bytes, verify. Then run it at
+   boot behind a jumper so the production line can use it too.
+
+6. Fault injection, once, deliberately: yank the RS-485 cable in the
+   middle of a transfer and confirm the device recovers to a defined
+   state rather than hanging. Then do it fifty times in a loop with a
+   relay if you can. Almost nobody does this, and it is where the
+   defects that reach customers live.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Most firmware logic is ordinary C.</strong> Compile it for the host and test it in
+        milliseconds.</li>
+    <li><strong>The host build is also the architecture check</strong> &mdash; if it stops compiling,
+        the vendor HAL leaked upwards.</li>
+    <li><strong>Test protocols, state machines, scaling and buffers off target</strong>, with the
+        awkward inputs.</li>
+    <li><strong>Build fakes from captured traffic</strong>, not from your reading of the
+        datasheet.</li>
+    <li><strong>Keep one on-target test per driver</strong>, to catch the assumption your mock
+        shares.</li>
+    <li><strong>Record and replay real traffic</strong>, so a field failure becomes a permanent
+        regression test.</li>
+    <li><strong>Property-test the parser</strong> with random input, under a sanitiser, on the
+        host.</li>
+    <li><strong>Soak tests and fault injection find what ships broken</strong>: pull the cable, brown
+        out the supply, cut power mid-flash.</li>
+    <li><strong>Measure worst-case timing and stack high-water marks</strong>, and put them in a
+        report.</li>
+    <li><strong>One command, every push, warnings as errors</strong>, plus size and static analysis
+        published.</li>
+    <li><strong>Coverage is a diagnostic, not a target.</strong> Tests that execute without asserting
+        are worse than none.</li>
+    <li><strong>A check driven by the same thing it checks always reports health.</strong></li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Come si testa un firmware, se il test non pu&ograve; girare sulla scheda?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;La maggior parte del firmware in realt&agrave; non &egrave; hardware: il parser di
+    protocollo, la macchina a stati, le conversioni di scala, i buffer circolari. Quella &egrave; C
+    normale, quindi la compilo per il PC con uno strato hardware finto sotto e la testo in
+    millisecondi, a ogni push, senza scheda. Ed &egrave; anche la verifica dell&rsquo;architettura: se
+    la build per host smette di compilare, vuol dire che la HAL del produttore &egrave; risalita dove
+    non doveva. Sul parser ci metto anche un test a input casuali sotto AddressSanitizer, che sul PC
+    &egrave; gratis e sul target &egrave; impossibile, e catturo del traffico vero con
+    l&rsquo;analizzatore logico per trasformarlo in test di regressione &mdash; cos&igrave; un guasto
+    dal campo resta un test per sempre. La cosa a cui sto attento &egrave; il mock: se lo scrivo dalla
+    mia interpretazione del datasheet, il test dimostra solo che il mio codice &egrave;
+    d&rsquo;accordo con la mia convinzione, che &egrave; l&rsquo;unica cosa di cui non dubitavo.
+    Quindi i fake li costruisco dal traffico registrato e tengo comunque un test su scheda per ogni
+    driver, anche minimo. E poi le prove che quasi nessuno fa e che sono quelle che trovano i difetti
+    che arrivano al cliente: soak test di giorni, e fault injection &mdash; staccare il cavo a
+    met&agrave; trasferimento, abbassare l&rsquo;alimentazione, togliere corrente durante un
+    aggiornamento flash.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>
