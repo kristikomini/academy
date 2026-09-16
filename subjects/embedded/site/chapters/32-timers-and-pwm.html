@@ -18,25 +18,275 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 5 — STM32, concretely <span>&rsaquo;</span> Chapter 32</p>
+<p class="crumbs">Part 5 &mdash; STM32, concretely <span>&rsaquo;</span> Chapter 32</p>
 <h1>Timers, PWM and input capture</h1>
-<p class="lede">Prescaler, period, compare. Generating a waveform, measuring one, and counting an encoder, all from the same block.</p>
+<p class="lede">
+  A counter, a prescaler, a reload value and a few compare registers &mdash; and from those four
+  things come PWM, frequency measurement, pulse width measurement, quadrature decoding, precise
+  triggering of the ADC, and most of the software loops you should not have written.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The most versatile peripheral on the chip, and the one that most often replaces a software loop you should not have written.</p>
+  <p>
+    <strong>Not named directly</strong>, and behind two lines that are. A liquid-cooling controller
+    drives <em>pompe e ventole</em> &mdash; pumps and fans &mdash; which is PWM, and reads their
+    tachometer feedback, which is input capture. The same peripheral also triggers the
+    <a href="33-adc-and-the-analogue-chain.html">ADC</a> at exact instants, which is what makes a
+    control loop deterministic rather than approximately periodic.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="counter">The counter, and the arithmetic</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A timer is a counter that counts clock pulses. Two numbers control it. The prescaler decides how
+    many clock pulses make one count &mdash; dividing a fast clock down to a manageable speed. The
+    reload value decides how high it counts before starting again at zero.
+  </p>
+  <p>
+    So the time to go round once is: how long one count takes, multiplied by how many counts. Every
+    timer question is a version of that sentence.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <pre><code>f_timer  = f_clk / (PSC + 1)
+f_period = f_timer / (ARR + 1)        /* the update event rate */
+
+/* 1 kHz PWM from an 84 MHz timer clock:
+   pick PSC so the counter has useful resolution, then ARR.       */
+PSC = 83     -&gt; f_timer = 84e6 / 84 = 1 MHz   (1 us per count)
+ARR = 999    -&gt; f_period = 1e6 / 1000 = 1 kHz (1000 steps of duty)
+CCR = 250    -&gt; 25 % duty</code></pre>
+  <p>
+    Both <code>PSC</code> and <code>ARR</code> are <em>minus one</em> registers, which is responsible
+    for a steady trickle of off-by-one frequency errors, and the trade between them is the real design
+    decision: the prescaler costs you resolution, so use the smallest prescaler that keeps ARR inside
+    the counter's width. A 16-bit timer with ARR = 999 gives you a thousand duty steps; the same
+    frequency with ARR = 9 gives ten, and a fan that can only be driven in 10 % jumps.
+  </p>
+  <p>
+    Counting modes matter more than they look. <strong>Up</strong> is the default.
+    <strong>Centre-aligned</strong> counts up then down, halving the update rate for the same ARR but
+    producing symmetric pulses &mdash; standard in motor control because it puts less harmonic energy
+    on the supply. And <strong>one-pulse mode</strong> generates a single pulse of an exact width and
+    stops, which replaces an entire category of bit-banged delay.
+  </p>
+  <p>
+    Remember the clock-doubling rule from <a href="25-clocks-and-plls.html">chapter 25</a>: a timer on
+    an APB bus whose prescaler is not 1 is clocked at twice the bus frequency. Half of all
+    &ldquo;my period is exactly double what I calculated&rdquo; reports are that line.
+  </p>
+</div>
+
+<h2 id="pwm-capture">PWM out, capture in</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    PWM means switching a pin on and off very fast, and changing what fraction of the time it is on.
+    A motor or a heater cannot follow the switching, so it behaves as if it were getting a fraction of
+    the power. An LED does the same and appears dimmed.
+  </p>
+  <p>
+    Input capture is the mirror image: instead of the timer driving a pin, a pin drives the timer.
+    When an edge arrives, the hardware writes down the exact count at that instant. Two of those
+    numbers and you know how long something took, with no software delay in the measurement at all.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    <strong>PWM</strong> is output-compare mode: each channel has a CCR, the output changes state when
+    the counter reaches it, so duty is <code>CCR / (ARR + 1)</code>. Two things to get right. Use
+    <strong>preload</strong> (the shadow registers, OCxPE and ARPE) so a new CCR takes effect at the
+    next update event rather than mid-cycle &mdash; without it, writing a smaller CCR after the
+    counter has passed it produces a glitched cycle at full width, which on a power stage is a real
+    current spike. And on the advanced timers, <strong>complementary outputs with dead-time
+    insertion</strong> exist precisely so that the high-side and low-side switches of a bridge are
+    never on together; the dead time is a hardware guarantee, and it is not something firmware should
+    be attempting in software.
+  </p>
+  <p>
+    <strong>Input capture</strong> latches CNT into CCR on a selected edge, and the useful patterns
+    are:
+  </p>
+  <ul>
+    <li><strong>Frequency</strong> &mdash; capture on every rising edge and subtract consecutive
+        values. Unsigned subtraction handles the counter wrapping correctly, which is one of the few
+        places where relying on wrap-around arithmetic is right rather than sloppy.</li>
+    <li><strong>Pulse width / duty</strong> &mdash; PWM input mode uses two channels on the same pin,
+        one capturing rising and one falling, giving period and width simultaneously with no software
+        involvement.</li>
+    <li><strong>Tachometer feedback</strong> &mdash; a fan's tach output is two pulses per revolution,
+        so RPM is a division; and a stalled fan produces no edges at all, which means the missing
+        capture <em>is</em> the fault signal. That should be a timeout, not an infinite wait.</li>
+    <li><strong>Encoder mode</strong> &mdash; two channels decode quadrature in hardware, counting up
+        and down with direction, so position is simply CNT. Doing this with interrupts instead is a
+        classic way to lose counts at speed.</li>
+  </ul>
+  <p>
+    Two integrations worth knowing exist, because they are what makes a timer a system component
+    rather than a gadget. A timer's update event can <strong>trigger the ADC</strong> directly, so
+    samples are taken at exact instants regardless of what the CPU is doing &mdash; the foundation of
+    any real control loop. And a timer can <strong>trigger DMA</strong>, so a whole table of duty
+    values or output patterns can be played out with no CPU involvement whatsoever
+    (<a href="27-dma.html">chapter 27</a>).
+  </p>
+</div>
+
+<h2 id="replacing">What a timer replaces</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Most beginner firmware is full of waiting: wait a bit, toggle a pin, wait a bit. Every one of
+    those waits is the processor doing nothing while the rest of the program cannot run.
+  </p>
+  <p>
+    Nearly all of them can be handed to a timer, which does the waiting in hardware and tells you when
+    it matters.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>A delay loop becomes a periodic interrupt</strong> or a state machine driven by a tick
+        (<a href="07-state-machines-in-c.html">chapter 7</a>).</li>
+    <li><strong>A software PWM in a loop becomes a hardware channel</strong>, with exact timing and
+        zero jitter no matter what else is running.</li>
+    <li><strong>A bit-banged protocol becomes a timer-driven one</strong>, or better, a real
+        peripheral.</li>
+    <li><strong>&ldquo;Measure how long this takes&rdquo; becomes a free-running counter read</strong>
+        &mdash; start, end, subtract. This is the measurement instrument of
+        <a href="43-timing-and-jitter.html">chapter 43</a>, and a spare timer left free-running at
+        1 MHz is the cheapest profiler in existence.</li>
+    <li><strong>A timeout becomes a comparison against that counter</strong>, rather than a counted
+        loop whose duration changes with optimisation settings.</li>
+  </ul>
+  <p>
+    The reason this matters beyond elegance: hardware timing does not degrade under load. A software
+    delay is correct when the system is idle and wrong when it is busy, which means it is wrong
+    precisely when the system is under the conditions you care about.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>timer, prescaler, arr, auto, reload, counter, compare, capture, pwm, duty</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>The capture-overflow bug: a measurement that is right for short intervals and silently
+    wrong for long ones.</strong>
+  </p>
+  <p>
+    Capture two edges, subtract, and you have the interval &mdash; as long as the counter wrapped at
+    most once, which unsigned arithmetic handles for you. Wrap <em>twice</em> and the result is
+    plausible and wrong: a fan turning slowly reports a high RPM, a period measurement returns a small
+    number, and nothing anywhere indicates a problem. It is the shape of bug that survives testing,
+    because the bench case is a fast signal.
+  </p>
+  <p>
+    The fix is to count the overflows: enable the update interrupt alongside the capture interrupt and
+    build a wider timestamp, or use a 32-bit timer where the part has one. Then decide what a very
+    long interval <em>means</em> &mdash; a stopped fan, a disconnected sensor &mdash; and return that as
+    a defined state rather than as a number. The general rule, which recurs throughout this course:
+    <strong>a measurement needs a defined out-of-range answer</strong>, and the absence of an event
+    must be detectable in bounded time.
+  </p>
+  <p>
+    Two smaller traps in the same family. Reading <code>CNT</code> on a 32-bit timer is fine, but
+    reading a 16-bit counter and a separate overflow variable is a race unless you re-read and check
+    for a wrap in between. And enabling a capture interrupt without reading CCR in the handler leaves
+    the flag set forever, so the interrupt re-fires immediately and the system appears to hang &mdash;
+    the same status-flag family as <a href="21-whats-on-the-die.html">chapter 21</a>.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> A Nucleo and the logic analyser from chapter 29 cover all of this; the
+  first exercise is arithmetic and needs nothing.</p>
+  <pre><code>1. Do the arithmetic by hand before touching CubeMX. From an 84 MHz
+   timer clock, find PSC and ARR for: 1 kHz with at least 1000 duty
+   steps; 25 kHz (above audible, for a fan) with at least 500 steps;
+   and 50 Hz with 20000 steps for a servo. Then check them in CubeMX
+   and see whether you hit the same values.
+
+2. Generate PWM on a pin and measure it on the logic analyser.
+   Change duty at run time and confirm the edge moves. Then remove
+   the preload bit and change duty rapidly in a loop -- look for the
+   glitched cycle. That is why preload exists.
+
+3. Loop a PWM output back into an input-capture pin with a jumper
+   wire and measure your own signal. Print period and duty. Agreeing
+   with what you set is the satisfying part; the point is that you now
+   own both halves.
+
+4. Then make it fail: lower the PWM frequency until the capture
+   interval overflows the counter twice, and watch the measurement
+   become confidently wrong. Fix it by counting update events. This
+   is the trap above, felt rather than read.
+
+5. Free-run a spare timer at 1 MHz and use it to measure how long
+   your own functions take -- read CNT, call, read again, subtract.
+   Keep the maximum. That is a profiler in four lines, and chapter 43
+   builds on it.
+
+6. If you have an encoder or can fake one with two PWM channels
+   90 degrees apart, configure encoder mode and watch CNT track
+   position and direction in hardware, with no interrupts at all.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Period is <code>(PSC + 1)(ARR + 1) / f_clk</code></strong>, and both registers are
+        minus-one registers.</li>
+    <li><strong>Use the smallest prescaler that keeps ARR in range</strong>; the prescaler costs duty
+        resolution.</li>
+    <li><strong>A timer on an APB bus with a prescaler above 1 runs at twice the bus clock.</strong></li>
+    <li><strong>Use preload on CCR and ARR</strong>, so a duty change lands at the update event and
+        never mid-cycle.</li>
+    <li><strong>Dead time on complementary outputs is a hardware guarantee.</strong> Never attempt it
+        in software.</li>
+    <li><strong>Input capture timestamps in hardware</strong>, so the measurement carries no software
+        latency.</li>
+    <li><strong>Count overflows, or the measurement is silently wrong for long intervals.</strong></li>
+    <li><strong>Define what &ldquo;no edge arrived&rdquo; means</strong> &mdash; a stopped fan is a
+        state, not a missing number &mdash; and detect it with a timeout.</li>
+    <li><strong>Read CCR in the capture handler</strong>, or the flag stays set and the interrupt
+        never stops.</li>
+    <li><strong>Let the timer trigger the ADC and the DMA.</strong> That is what makes sampling exact
+        and the CPU irrelevant.</li>
+    <li><strong>Every delay loop is a timer you have not configured yet</strong>, and hardware timing
+        does not degrade under load.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Come misurerebbe i giri di una ventola e come la piloterebbe?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;La piloterei in PWM hardware, tipicamente a 25 kHz per stare sopra l&rsquo;udibile,
+    calcolando prescaler e ARR per avere abbastanza passi di duty &mdash; e con il preload attivo, se
+    no cambiando duty a met&agrave; ciclo mi esce un impulso sbagliato, che su uno stadio di potenza
+    &egrave; un picco di corrente vero. Per i giri userei l&rsquo;input capture sul segnale di tach:
+    l&rsquo;hardware mi salva il valore del contatore esattamente sul fronte, quindi nella misura non
+    c&rsquo;&egrave; nessuna latenza software, e sottraendo due catture consecutive ho il periodo &mdash;
+    la sottrazione fra unsigned gestisce da sola il wrap del contatore. La cosa a cui sto attento
+    &egrave; l&rsquo;overflow: se il contatore gira due volte la misura torna plausibile e sbagliata,
+    e una ventola lenta mi risulta veloce. Quindi conto gli eventi di update e mi costruisco un
+    timestamp pi&ugrave; largo, oppure uso un timer a 32 bit. E soprattutto decido cosa vuol dire
+    &lsquo;non &egrave; arrivato nessun fronte&rsquo;: ventola ferma &egrave; uno stato, non un numero
+    mancante, quindi ci va un timeout e un valore di guasto esplicito. Poi la stessa unit&agrave; la
+    uso per far partire l&rsquo;ADC sull&rsquo;evento di update, cos&igrave; il campionamento
+    &egrave; esatto qualunque cosa stia facendo la CPU.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

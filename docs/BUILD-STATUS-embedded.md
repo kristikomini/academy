@@ -77,10 +77,10 @@ Three consequences, all deliberate and all visible on the site itself:
 | Thing | Count | Target |
 |---|---|---|
 | Site chapters (files + manifest entries) | 75 | 75 |
-| Chapters actually written | **34** | 75 |
-| Chapters that are honest placeholders | **41** | 0 |
-| Quiz questions | 317 | ~750 |
-| Chapters with questions | 34 | 75 |
+| Chapters actually written | **43** | 75 |
+| Chapters that are honest placeholders | **32** | 0 |
+| Quiz questions | 407 | ~750 |
+| Chapters with questions | 43 | 75 |
 | Glossary terms | 0 | ~130 |
 | Italian chapter panels | 0 | ~30 |
 
@@ -91,9 +91,11 @@ That is the generator's design (`tools/gen-chapters.js`) and it should stay that
 ### Which chapters are written
 
 Chosen as the spine of the course rather than as a contiguous block: the ones an interviewer is
-most likely to reach for, plus the two ends of the arc. **Parts 6 and 7 are now complete** — every
-chapter in them has prose, a Try-it, golden rules, an Italian panel and questions — because an
-interviewer reaches for an RTOS and a protocol long before reaching for `constexpr`.
+most likely to reach for, plus the two ends of the arc. **Parts 4, 5, 6 and 7 are now complete** —
+every chapter in them has prose, a Try-it, golden rules, an Italian panel and questions. Parts 6
+and 7 came first because an interviewer reaches for an RTOS and a protocol long before reaching
+for `constexpr`; Parts 4 and 5 followed because they are the expansion of the advert's own
+*ambiente di sviluppo STM32*.
 
 | Ch | Title | Why this one first |
 |---|---|---|
@@ -101,11 +103,20 @@ interviewer reaches for an RTOS and a protocol long before reaching for `constex
 | 03 | Types, sizes, and the integer rules that catch everyone | The half of C candidates claim and cannot defend |
 | 06 | const, volatile, and the compiler that deleted your poll loop | The most frequently asked single question in embedded hiring, worldwide |
 | 11 | Why embedded code avoids malloc | A house rule nobody writes in an advert and everybody asks about |
+| 21 | What is actually on the die | The block diagram everything else is a detail of, and the disabled-clock trap |
+| 22 | ARM Cortex-M: core, modes, registers | The most portable knowledge in the course, and the fault-debugging recipe |
 | 23 | Memory-mapped I/O and the peripheral register | A pin is an address — the idea the whole field is built on |
 | 24 | The startup path: reset vector to main | The first place to look when a board does nothing, and where beginners never look |
+| 25 | Clocks and PLLs | The most common cause of a peripheral that is configured correctly and does nothing |
 | 26 | Interrupts, the NVIC and the rules for an ISR | Everything in Part 6 assumes it |
 | 27 | DMA | What makes a fast link and an idle CPU compatible, plus the cache-coherency bug |
+| 28 | Low power, sleep modes and the watchdog | The watchdog half is universal, and the timer-ISR kick is the clearest self-defeating pattern in firmware |
+| 29 | The STM32 family, and choosing a part | The advert's STM32 line, silicon half: how to choose, and why speed is the wrong axis |
 | 30 | CubeMX, CubeIDE, HAL, LL and the bare registers | The advert's one hard technical gate, and a question with a wrong confident answer in both directions |
+| 31 | GPIO | The first peripheral anyone touches, and BSRR is the concurrency lesson in one register |
+| 32 | Timers, PWM and input capture | Pumps and fans out, tachometer in, and the ADC trigger that makes a control loop real |
+| 33 | ADC, DAC and the analogue front end | Sampling time, the reference, and looking at raw samples before filtering |
+| 34 | Flash, option bytes and the bootloader | Field update, and the power-cut test almost nobody runs |
 | 35 | Designing the software architecture of a firmware project | Both adverts use the word *architettura*, and this is the only chapter that answers it |
 | 36 | Makefile, CMake and the linker script | The *build e integrazione* line, and the file that decides whether the program fits |
 | 37 | What 'real-time' actually means | The answer most likely to be scored, because "fast" is wrong and common |
@@ -149,8 +160,14 @@ one actually writes down. With them, **every line of the automotive advert now h
 prose behind it**, and the anchor advert's `req` set is complete except for the C and C++
 expansion in Parts 1 to 3.
 
-From here the original order resumes: **finish Part 4 (21, 22, 25, 28), then Part 5, then 9 and
-10, then 1 and 2, then 3 and 11.**
+**Parts 4 and 5 were then completed on 2026-09-16** — 21, 22, 25, 28, 29, 31, 32, 33 and 34 —
+which closes the STM32 half of the anchor advert. With Parts 4 to 7 done, a reader can go from
+a block diagram to a working peripheral to a protocol on the wire without meeting a placeholder.
+
+**Remaining, in writing order: Part 10 (60–65), Part 9 (57, 59), Part 8 (51–55), Parts 1 and 2
+(01, 02, 04, 05, 07–10, 12–14), Part 11 (68, 69), then Part 3 (15–20).** Part 3 is last on
+purpose: C++ on a microcontroller is the least-asked topic in this market, and chapter 15
+already frames the trade.
 
 ---
 
@@ -242,9 +259,9 @@ is the contract rather than the convention.
 
 ## Known gaps, in the order they should be closed
 
-1. **The prose.** Forty-one labelled placeholders. Parts 6 and 7 are complete, and the
-   advert-named chapters (35, 36, 66, 67, plus 49a/49b/64a) are done. Remaining order: Part 4
-   (21, 22, 25, 28), then Part 5, then 9 and 10, then 1 and 2, then 3 and 11.
+1. **The prose.** Thirty-two labelled placeholders. Parts 4, 5, 6 and 7 are complete, as are
+   the advert-named chapters (35, 36, 66, 67, plus 49a/49b/64a). Remaining order: Part 10
+   (60–65), Part 9 (57, 59), Part 8 (51–55), Parts 1 and 2, Part 11 (68, 69), then Part 3.
 2. **The question bank.** Questions exist only for written chapters, because a question
    written against a placeholder is a question written against nothing.
 3. **`glossary.js` is categories only.** The contract and process vocabulary (RAL, CCNL,

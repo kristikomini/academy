@@ -18,25 +18,266 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 5 — STM32, concretely <span>&rsaquo;</span> Chapter 31</p>
+<p class="crumbs">Part 5 &mdash; STM32, concretely <span>&rsaquo;</span> Chapter 31</p>
 <h1>GPIO</h1>
-<p class="lede">Input, output, alternate function, analogue. Push-pull versus open-drain, pull-ups, speed, and the pin that reads high forever.</p>
+<p class="lede">
+  The first peripheral anybody touches and the one with the most ways to be quietly wrong: four
+  modes, two output drivers, a pull network, a speed setting that is really a slew rate, a mux with
+  sixteen functions per pin, and one register that exists specifically so two pieces of code cannot
+  corrupt each other's pins.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The first peripheral anyone touches, and the one with the most ways to be subtly wrong.</p>
+  <p>
+    <strong>Not named in any advert</strong>, because it is assumed the way breathing is assumed.
+    Every line about <em>sensori e attuatori</em> and about
+    <a href="56-what-a-plc-is.html">the PLC on the other end of the cable</a> lands here in the end:
+    the signal becomes a pin, and the pin has a configuration that is either right or subtly wrong.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="modes">Four modes, and the drivers behind them</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Each pin can be one of four things: an input you read, an output you drive, a connection handed
+    over to another peripheral inside the chip (a UART, a timer), or an analogue pin wired straight to
+    the ADC.
+  </p>
+  <p>
+    When it is an output there are two ways to drive it. The usual one pushes the pin both up and down
+    by itself. The other one can only pull it down, and needs a resistor to pull it up &mdash; which
+    sounds worse until you want several devices sharing one wire, because then only one of them ever
+    fights.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>Input</strong>, with the Schmitt trigger on, readable in the IDR. The internal pull-up
+        or pull-down is selected separately, and &ldquo;no pull&rdquo; on an unconnected pin means a
+        floating input, which reads randomly and burns current.</li>
+    <li><strong>Output push-pull</strong> &mdash; a transistor pair driving both rails. The default for
+        an LED, a relay driver input, a chip select.</li>
+    <li><strong>Output open-drain</strong> &mdash; the pin can only pull low; a resistor (external, or
+        the internal pull-up if the bus is slow and short) provides the high. This is what makes a
+        shared bus possible: I&sup2;C requires it, and it is also how you drive a 5 V input from a
+        3.3 V part when the other side has its own pull-up to 5 V and the pin is five-volt
+        tolerant.</li>
+    <li><strong>Alternate function</strong> &mdash; the pin belongs to a peripheral, selected by a
+        four-bit AF number in AFRL/AFRH. Which peripheral is on which AF number for which pin is a
+        table in the datasheet, not a guess.</li>
+    <li><strong>Analogue</strong> &mdash; the digital input buffer is disconnected, which is both what
+        the ADC needs (<a href="33-adc-and-the-analogue-chain.html">chapter 33</a>) and the
+        lowest-power state for an unused pin.</li>
+  </ul>
+  <p>
+    <strong>The speed setting is not a speed.</strong> It is the slew rate of the output driver, and
+    the trade is real: fast edges are needed for fast signals and are also what radiate, ring and
+    couple into neighbours. The habit is to use the slowest setting that meets the signal's needs
+    &mdash; low for an LED or a relay, high only for SPI at speed or an external memory bus. A board
+    that fails EMC testing surprisingly often has every pin set to very high for no reason.
+  </p>
+</div>
+
+<h2 id="bsrr">BSRR: the register that exists because of concurrency</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The obvious way to set one pin is to read all sixteen, change your one, and write them all back.
+    That works until an interrupt happens in the middle and changes a different pin &mdash; because
+    when your code writes back, it writes the old values of every other pin too, undoing that change.
+  </p>
+  <p>
+    So the chip gives you a register where writing a 1 sets a pin and writing a 0 does nothing at all.
+    No reading, no putting back, nothing to interrupt. It is one instruction and it cannot go wrong.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <pre><code>/* Read-modify-write: three operations, interruptible between them. */
+GPIOA-&gt;ODR |= (1u &lt;&lt; 5);        /* an ISR touching PA7 in between is lost  */
+
+/* BSRR: one 32-bit write, atomic by construction.                        */
+GPIOA-&gt;BSRR = (1u &lt;&lt; 5);        /* set PA5   (low half sets)              */
+GPIOA-&gt;BSRR = (1u &lt;&lt; (5 + 16)); /* clear PA5 (high half resets)           */</code></pre>
+  <p>
+    The low sixteen bits set, the high sixteen reset, and zeros are ignored &mdash; so one write can
+    change several pins in either direction simultaneously, and no read is involved, which also makes
+    it faster. Reset wins over set if you write both for the same pin. On parts with a separate BRR,
+    that is just the reset half with its own address.
+  </p>
+  <p>
+    Two related habits. <strong>Read IDR, not ODR</strong>, when you want to know what a pin
+    <em>is</em>: ODR is what you asked for, IDR is what the pin is actually at, and on an open-drain
+    output they differ precisely when something external is holding the line &mdash; which is
+    information, not noise. And in an RTOS or an interrupt-heavy design, treat any read-modify-write
+    on a shared peripheral register as a critical section unless the hardware gives you an atomic
+    alternative; BSRR is that alternative for GPIO, and the general problem is
+    <a href="42-isr-and-the-rtos.html">chapter 42</a>.
+  </p>
+</div>
+
+<h2 id="reality">The world on the other side of the pin</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A pin is not a variable. A button does not produce one clean change when pressed; the contacts
+    bounce and produce a burst of them. A long wire picks up interference from a motor starting
+    nearby. A 24 V industrial signal will destroy a 3.3 V pin.
+  </p>
+  <p>
+    So between the chip and the world there is always something: a resistor, an opto-isolator, a
+    filter. Firmware has to know what is there.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>Debouncing</strong> is a firmware job and a small one done right: sample the input on a
+        periodic tick and require N consecutive agreeing samples, or timestamp the first edge and
+        ignore changes for a settling period. What you should not do is <code>delay(20)</code> inside
+        an interrupt, which is the version everybody writes first and which blocks everything else
+        (<a href="26-interrupts-and-nvic.html">chapter 26</a>).</li>
+    <li><strong>EXTI</strong> lines give an interrupt per pin number &mdash; and the constraint is
+        structural: PA0 and PB0 share EXTI0, so two edge-sensitive inputs must be on different pin
+        numbers. That is a schematic-level constraint discovered in firmware, and it is the sort of
+        thing worth catching in review (<a href="63-reading-a-schematic.html">chapter 63</a>).</li>
+    <li><strong>24 V industrial inputs</strong> never reach the MCU directly. An opto-isolator or a
+        divider with clamping sits in between, and it usually <em>inverts</em> &mdash; so active-low in
+        the field is a 1 at the pin. That inversion belongs in one named function in the hardware
+        layer, not sprinkled through the application as
+        <code>if (!pin)</code> (<a href="35-firmware-architecture.html">chapter 35</a>).</li>
+    <li><strong>Outputs driving anything inductive</strong> &mdash; a relay, a solenoid &mdash; need a
+        flyback diode on the board, and the pin drives a transistor, never the coil. Knowing this is
+        firmware knowing its limits, and it is exactly the conversation the advert's <em>collaborare
+        con il team hardware</em> describes.</li>
+    <li><strong>Reset state.</strong> Between power-on and your configuration code, pins are inputs.
+        If a line must be at a defined level during that window &mdash; a driver enable, a relay that
+        must stay open &mdash; the board needs an external pull, not a line of firmware. This is a
+        firmware engineer's most frequent useful contribution to a schematic review.</li>
+  </ul>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>gpio, input, output, push, pull, open, drain, pull, up, pull</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>The pin is configured perfectly and does nothing, and the cause is one of four
+    prerequisites rather than the code in front of you.</strong>
+  </p>
+  <p>
+    In order of how often they are the answer: the <strong>GPIO port clock is not enabled</strong>
+    (<a href="25-clocks-and-plls.html">chapter 25</a>); the pin is in the wrong <strong>alternate
+    function</strong> number, so a UART is transmitting into nothing while the pin sits as a plain
+    output; the pin is one of the <strong>special ones</strong> &mdash; PA13/PA14 are SWD and
+    reconfiguring them drops your debugger, PB3/PB4 are JTAG on many parts and default to it, PC13 to
+    PC15 come from the backup domain and can only drive a few hundred microamps at low speed; or the
+    peripheral that owns the pin is configured but <strong>not enabled</strong>.
+  </p>
+  <p>
+    All four are found the same way, and it is the habit this whole part of the course keeps
+    repeating: <strong>read the registers back and look at them.</strong> A debugger's peripheral view
+    shows MODER, OTYPER, PUPDR, AFR, IDR and ODR side by side; thirty seconds there beats thirty
+    minutes of rereading source, because the registers cannot be wrong about what the hardware
+    believes.
+  </p>
+  <p>
+    The specific cruelty of the SWD case deserves naming: configure PA13 as a GPIO in your
+    initialisation and the board becomes unreachable by the debugger, immediately and permanently,
+    because the reconfiguration happens microseconds after reset and before the debugger can attach.
+    The recovery is to hold the board in reset while connecting (the &ldquo;connect under reset&rdquo;
+    option) or to boot from the system bootloader with BOOT0, and everybody who has done it once
+    checks the pin list forever after.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> Steps 1 to 3 want a Nucleo and cost nothing else; step 5 wants the logic
+  analyser from chapter 29.</p>
+  <pre><code>1. Blink an LED with the registers, not the HAL. Enable the port
+   clock in RCC, set MODER to output, then toggle with BSRR only --
+   no read-modify-write anywhere. Fifteen lines, and it is the
+   "hello world" that actually teaches something.
+
+2. Prove BSRR matters. Toggle PA5 in the main loop with
+   `ODR |= / ODR &amp;= ~`, and toggle PA6 in a fast timer ISR the same
+   way. Run it and watch pins occasionally miss a transition. Then
+   change both to BSRR and watch it stop. That experiment is worth
+   more than any explanation of atomicity.
+
+3. Read IDR versus ODR on an open-drain output: drive it high, then
+   short it to ground through a 1 k resistor, and print both. ODR
+   says 1, IDR says 0. That difference is how you detect a stuck bus.
+
+4. Configure a button with EXTI and count edges with no debouncing at
+   all. Press it fifty times and read the counter -- it will be far
+   more than fifty. Then add the N-consecutive-samples filter on a
+   1 ms tick and repeat. Now you know what bouncing costs.
+
+5. Set an output to "low" speed and to "very high" speed in turn and
+   look at the edge on the logic analyser or scope. Then do it with a
+   30 cm wire attached and look at the ringing. That is the EMC
+   argument made visible in two minutes.
+
+6. Read the datasheet's alternate-function table for your part and
+   find every pin that can carry USART2_TX. Then find one pin where
+   two functions you might plausibly want collide. That table is what
+   chapter 29's selection exercise was really about.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Four modes: input, output, alternate function, analogue.</strong> Unused pins go to
+        analogue or get a defined pull &mdash; never left floating.</li>
+    <li><strong>Push-pull drives both rails; open-drain only pulls low</strong> and is what makes a
+        shared bus and some level shifting possible.</li>
+    <li><strong>The speed setting is slew rate.</strong> Use the slowest that works; fast edges
+        radiate.</li>
+    <li><strong>Use BSRR.</strong> A read-modify-write on ODR loses an interrupt's change to another
+        pin in the same port.</li>
+    <li><strong>Read IDR for what the pin is, ODR for what you asked for</strong>, and on open-drain
+        the difference is a diagnostic.</li>
+    <li><strong>Alternate function is a numbered table in the datasheet</strong>, not a guess.</li>
+    <li><strong>PA13 and PA14 are SWD.</strong> Reconfigure them and you lose the debugger, instantly
+        and permanently, until you connect under reset.</li>
+    <li><strong>EXTI is shared by pin number across ports.</strong> Two interrupt inputs need two
+        different pin numbers.</li>
+    <li><strong>Debounce on a periodic tick</strong>, never with a delay inside an ISR.</li>
+    <li><strong>Field signals are conditioned and usually inverted.</strong> Put that inversion in one
+        named function in the hardware layer.</li>
+    <li><strong>Between reset and your init, pins are inputs.</strong> Anything that must be safe in
+        that window needs an external pull, not firmware.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Perch&eacute; si usa BSRR invece di scrivere direttamente su ODR?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Perch&eacute; scrivere su ODR con un <code>|=</code> &egrave; in realt&agrave; leggi,
+    modifica, riscrivi: tre operazioni, e in mezzo pu&ograve; arrivare un interrupt che cambia un
+    altro pin della stessa porta. Quando poi riscrivo, riscrivo anche i vecchi valori di tutti gli
+    altri pin e quella modifica sparisce &mdash; ed &egrave; un bug orribile da trovare, perch&eacute;
+    capita una volta ogni tanto e solo sotto carico. BSRR invece &egrave; una scrittura sola: i sedici
+    bit bassi mettono a uno, i sedici alti mettono a zero, gli zeri non fanno niente. Non c&rsquo;&egrave;
+    lettura, quindi non c&rsquo;&egrave; niente da interrompere, ed &egrave; anche pi&ugrave; veloce.
+    L&rsquo;altra cosa che guardo sempre &egrave; la differenza fra IDR e ODR: ODR &egrave; quello che
+    ho chiesto, IDR &egrave; com&rsquo;&egrave; davvero il pin, e su un open-drain la differenza mi
+    dice che qualcuno sta tenendo gi&ugrave; la linea &mdash; su I2C &egrave; proprio cos&igrave; che
+    si accorge di un bus bloccato. E quando un pin non fa niente non riguardo il codice: guardo i
+    registri col debugger. Nove volte su dieci &egrave; il clock della porta, o l&rsquo;alternate
+    function sbagliata, o un pin speciale &mdash; PA13 e PA14 sono l&rsquo;SWD, se li riconfiguro
+    perdo il debugger e devo ricollegarmi in connect under reset.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

@@ -18,25 +18,278 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 4 — The microcontroller itself <span>&rsaquo;</span> Chapter 22</p>
+<p class="crumbs">Part 4 &mdash; The microcontroller itself <span>&rsaquo;</span> Chapter 22</p>
 <h1>ARM Cortex-M: core, modes, registers</h1>
-<p class="lede">M0 to M7, thread and handler mode, MSP and PSP, and the exception model everything else in Part 6 is built on.</p>
+<p class="lede">
+  Sixteen registers, two stack pointers, two modes and one exception mechanism. It is a small
+  architecture on purpose &mdash; and the exception model in particular is the reason C code can be an
+  interrupt handler with no assembly wrapper at all.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> Named by almost every firmware advert in the region even when this one did not; STM32 is a Cortex-M with peripherals around it.</p>
+  <p>
+    <strong>Not named in the anchor advert</strong>, which says STM32 and stops &mdash; but an STM32
+    <em>is</em> a Cortex-M with ST's peripherals around it, and the regional listings name Cortex-M
+    directly. It is also the most portable knowledge in this course: the peripherals change when you
+    change vendor, and this does not.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="registers">The register set</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The processor has sixteen small boxes it can work with directly, called registers. Thirteen are
+    for anything you like. The last three have fixed jobs: one remembers where the stack is, one
+    remembers where to return after a function call, and one holds the address of the instruction
+    being executed.
+  </p>
+  <p>
+    Everything else &mdash; every variable, every array &mdash; lives in memory and has to be loaded
+    into one of those boxes before the processor can do arithmetic on it, then stored back.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>R0&ndash;R12</strong>, general purpose. By the calling convention (AAPCS)
+        <strong>R0&ndash;R3 carry the first four arguments and R0 the return value</strong>, and they
+        are caller-saved; R4&ndash;R11 are callee-saved. That one sentence lets you read a disassembly
+        and lets you write a C function that is called from assembly.</li>
+    <li><strong>R13, the stack pointer</strong> &mdash; and there are two of them, banked:
+        <strong>MSP</strong>, the main stack pointer, used by handlers and by default at reset, and
+        <strong>PSP</strong>, the process stack pointer. An RTOS gives each task its own stack on PSP
+        and keeps MSP for interrupts, which is exactly why
+        <a href="44-freertos-concretely.html">FreeRTOS</a> has a separate interrupt stack.</li>
+    <li><strong>R14, the link register</strong> &mdash; the return address of the current call. It is
+        why a leaf function needs no stack frame at all, and why a deep call chain does.</li>
+    <li><strong>R15, the program counter.</strong></li>
+    <li><strong>xPSR</strong>, the program status register: the condition flags, the current exception
+        number, and the Thumb bit &mdash; which must always be 1, because Cortex-M executes only
+        Thumb-2 and clearing it faults instantly. A function pointer with a cleared low bit is
+        exactly this failure.</li>
+    <li><strong>CONTROL</strong>, two bits that matter: which stack pointer thread mode uses, and
+        whether thread mode is privileged.</li>
+  </ul>
+  <p>
+    <strong>Two modes, two privilege levels.</strong> <em>Handler mode</em> is what the core is in
+    while servicing an exception; it always uses MSP and is always privileged. <em>Thread mode</em> is
+    everything else, and may be privileged or not. Bare-metal firmware runs privileged in thread mode
+    and never thinks about it; an RTOS may drop tasks to unprivileged so that an MPU region can
+    contain them. Being able to say which mode you are in, and which stack you are on, is the
+    question behind half of all hard-fault debugging.
+  </p>
+</div>
+
+<h2 id="exceptions">The exception model, and why an ISR is plain C</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    On many processors, an interrupt handler needs a wrapper written in assembly, because somebody
+    has to save the registers the handler is about to use.
+  </p>
+  <p>
+    Cortex-M does that in hardware. When an interrupt arrives the processor itself pushes the
+    registers a C function is allowed to clobber, then jumps to the handler. On return it pops them
+    back. So the handler can be an ordinary C function with no special keyword and no wrapper &mdash;
+    which is why the vector table in your project is just a list of function names.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    On exception entry the core stacks eight words &mdash; R0&ndash;R3, R12, LR, PC and xPSR &mdash;
+    onto the stack that was active, and with a floating-point unit in use it stacks the FPU registers
+    too (lazily, by default). Those are precisely the caller-saved registers, so a compiler-generated
+    C function is already a valid handler: the hardware saves what C would have clobbered, and the
+    function's own prologue saves the rest. This is <strong>hardware stacking</strong>, and it is the
+    single most practically useful fact about the architecture.
+  </p>
+  <p>
+    Consequences worth knowing:
+  </p>
+  <ul>
+    <li><strong>EXC_RETURN.</strong> On entry, LR is loaded not with a return address but with a magic
+        value encoding which mode and which stack to return to. Seeing <code>0xFFFFFFF9</code> or
+        similar in LR during a debug session means you are in a handler &mdash; not that memory is
+        corrupt.</li>
+    <li><strong>Tail-chaining.</strong> If another exception is pending when one finishes, the core
+        skips the pop and the push and goes straight to the next handler. Interrupt-heavy code is
+        therefore cheaper than the naive arithmetic suggests.</li>
+    <li><strong>Late arrival and pre-emption</strong> by priority, handled by the
+        <a href="26-interrupts-and-nvic.html">NVIC</a>, which is part of the core and therefore
+        identical across vendors.</li>
+    <li><strong>The stack frame is your crash evidence.</strong> After a hard fault, the stacked PC
+        tells you the instruction that faulted; with the fault status registers it usually names the
+        bug in two minutes.</li>
+  </ul>
+  <p>
+    The four faults you will meet: <strong>HardFault</strong> (the catch-all, and the one that is
+    actually an escalated other fault), <strong>MemManage</strong> (an MPU violation),
+    <strong>BusFault</strong> (a bad address on the bus &mdash; frequently a peripheral whose clock is
+    off) and <strong>UsageFault</strong> (undefined instruction, or an unaligned access, or a divide
+    by zero if you enabled trapping). A production project should implement a fault handler that
+    records the stacked PC, LR and the fault status registers into a no-init RAM area and resets, so
+    that a field failure arrives as an address rather than as a story.
+  </p>
+</div>
+
+<h2 id="variants">M0, M3, M4, M7 &mdash; and what actually differs</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The family has several members. The small ones are cheap and slow, the big ones are fast and
+    expensive, and the programming model is nearly the same across all of them &mdash; which is the
+    whole point of a family.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>Cortex-M0 / M0+</strong> &mdash; the smallest. A reduced Thumb instruction set, fewer
+        priority levels, often no MPU, and <em>no bit-banding and no unaligned access</em>. Code that
+        works on an M4 can fault here, and that is the migration surprise.</li>
+    <li><strong>Cortex-M3</strong> &mdash; the full Thumb-2 set, hardware divide, bit-banding, MPU
+        optional.</li>
+    <li><strong>Cortex-M4</strong> &mdash; M3 plus DSP instructions and an optional single-precision
+        FPU. The <em>F</em> in a part name is the FPU, and using it means the float ABI flags from
+        <a href="36-build-and-linker-script.html">chapter 36</a> must be right everywhere.</li>
+    <li><strong>Cortex-M7</strong> &mdash; superscalar, with instruction and data caches. The caches
+        are the reason an M7 needs cache maintenance around DMA buffers, which is the classic M7 bug
+        described in <a href="27-dma.html">chapter 27</a>: the DMA writes to RAM, the CPU reads stale
+        cache, and everything looks correct in the debugger because the debugger reads memory.</li>
+    <li><strong>Cortex-M33</strong> &mdash; ARMv8-M with TrustZone, increasingly common where security
+        is a requirement.</li>
+  </ul>
+  <p>
+    Across all of them the memory map is architecturally fixed: code at <code>0x0000_0000</code>, SRAM
+    at <code>0x2000_0000</code>, peripherals at <code>0x4000_0000</code>, and the core's own
+    peripherals &mdash; NVIC, SysTick, SCB, MPU &mdash; at <code>0xE000_E000</code>. Those addresses
+    are the same on every Cortex-M from every vendor, and <strong>CMSIS</strong> is ARM's header
+    layer over them, which is why <code>NVIC_EnableIRQ</code> and <code>__disable_irq</code> look
+    identical in an ST project and an NXP one.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>arm, cortex-m, m0, m3, m4, m7, thumb, registers, r0, r13</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>A hard fault is treated as a mystery, when the core has already written down exactly what
+    happened.</strong>
+  </p>
+  <p>
+    The usual reaction to <code>HardFault_Handler</code> is to add printfs and start bisecting the
+    source. That is the slow path, and it is unnecessary: the core stacked eight words at the moment
+    of the fault, and the System Control Block holds fault status registers naming the class of
+    error.
+  </p>
+  <p>
+    The fast path, worth writing once and copying into every project: in the fault handler, work out
+    which stack was in use (test bit 2 of EXC_RETURN in LR), take the stack pointer, and read the
+    stacked <strong>PC</strong> &mdash; that is the faulting instruction; look it up in the map file or
+    hand it to <code>addr2line</code>. Then read <strong>CFSR</strong> at <code>0xE000ED28</code> for
+    the class, and <strong>BFAR</strong> or <strong>MMFAR</strong> for the offending address when the
+    corresponding valid bit is set. Two minutes, no guessing.
+  </p>
+  <p>
+    Three faults that account for most of them, and what the evidence looks like. An address like
+    <code>0x00000000</code> in BFAR is a <strong>null function pointer or null struct pointer</strong>.
+    A PC with the <strong>low bit clear</strong> is a jump to a non-Thumb address &mdash; a corrupted
+    function pointer, or a hand-built one. And a BusFault on an address in the
+    <code>0x4000_0000</code> range is usually a <strong>peripheral accessed with its clock
+    disabled</strong>, which ties straight back to <a href="21-whats-on-the-die.html">chapter 21</a>.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> The first three need only a compiler; the rest want a board, and a
+  Nucleo is about fifteen euro.</p>
+  <pre><code>1. Read a disassembly and find the calling convention. Compile
+   anything for ARM and look at a function with three arguments:
+
+     arm-none-eabi-gcc -O1 -c -mcpu=cortex-m4 -mthumb f.c
+     arm-none-eabi-objdump -d f.o
+
+   Watch arguments arrive in R0, R1, R2 and the result leave in R0.
+   Then give it five arguments and watch the fifth come off the stack.
+
+2. Find the eight-word exception frame in the ARM programming manual
+   (DDI0403 or the Cortex-M4 generic user guide) and write the order
+   down: R0-R3, R12, LR, PC, xPSR. You will use it in exercise 4.
+
+3. Write the fault handler ONCE, properly. A naked function that
+   picks MSP or PSP from EXC_RETURN, passes the frame pointer to a C
+   function, and stores PC, LR, CFSR, BFAR into a no-init section
+   before resetting. Keep it; paste it into every future project.
+
+4. Cause each fault on purpose and read the evidence:
+
+     *(volatile uint32_t*)0 = 1;          // null pointer write
+     ((void(*)(void))0x20000001)();       // jump to RAM, no code
+     void (*f)(void) = (void(*)(void))0x08000100; f();  // low bit 0
+
+   For each one, note PC, CFSR and BFAR, and check they say what you
+   expected. Doing this deliberately, once, is what makes the real
+   one at 3 a.m. a two-minute job.
+
+5. Look at your RTOS project under the debugger and confirm which
+   stack pointer is in use in a task versus in an ISR. If PSP is not
+   in use in tasks, the RTOS is not configured the way you think.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>R0&ndash;R3 carry arguments and R0 the return value</strong>; R4&ndash;R11 are
+        callee-saved. That is enough to read any disassembly.</li>
+    <li><strong>Two stack pointers.</strong> MSP for handlers and reset, PSP for RTOS tasks.</li>
+    <li><strong>The Thumb bit must be set</strong> in every code address. A function pointer with the
+        low bit clear faults immediately.</li>
+    <li><strong>Handler mode is always privileged and always on MSP.</strong></li>
+    <li><strong>The core stacks eight words on exception entry</strong>, which is why a plain C
+        function can be an interrupt handler.</li>
+    <li><strong>EXC_RETURN in LR is not corruption</strong>; it encodes the mode and stack to return
+        to.</li>
+    <li><strong>Tail-chaining makes back-to-back interrupts cheaper</strong> than the naive
+        arithmetic.</li>
+    <li><strong>The stacked PC names the faulting instruction</strong>, and CFSR, BFAR and MMFAR name
+        the class and the address. Read them instead of guessing.</li>
+    <li><strong>M0 has no unaligned access and no bit-banding</strong>, so code that works on an M4 can
+        fault there.</li>
+    <li><strong>An M7 has caches</strong>, so DMA buffers need cache maintenance &mdash; and the
+        debugger will hide the bug from you.</li>
+    <li><strong>The core's own peripherals are at <code>0xE000_E000</code> on every vendor's part</strong>,
+        which is what CMSIS wraps.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Cosa succede esattamente quando arriva un interrupt su un Cortex-M?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Il core impila da solo otto parole sullo stack attivo &mdash; R0-R3, R12, LR, PC e xPSR
+    &mdash; che sono esattamente i registri che una funzione C pu&ograve; sporcare. Per questo su
+    Cortex-M un handler &egrave; una normalissima funzione C senza wrapper in assembly: l&rsquo;hardware
+    salva quello che salverebbe il chiamante, e il prologo della funzione salva il resto. In LR non ci
+    va un indirizzo di ritorno ma un valore speciale, EXC_RETURN, che dice in che modo e su quale
+    stack tornare: quando lo vedo nel debugger non &egrave; memoria corrotta, &egrave; la normalit&agrave;.
+    Ci sono due stack pointer, MSP e PSP: bare-metal uso solo MSP, con un RTOS i task stanno su PSP e
+    gli interrupt su MSP. E la cosa che uso di pi&ugrave; nel lavoro vero &egrave; che quel frame
+    &egrave; la prova del crash: su un hard fault prendo il PC impilato, che &egrave; l&rsquo;istruzione
+    che ha fatto fault, poi leggo CFSR e BFAR nel System Control Block. In due minuti so se &egrave; un
+    puntatore nullo, un puntatore a funzione con il bit Thumb a zero, o una periferica letta con il
+    clock spento. Ho un handler di fault che scrive PC, LR e i registri di stato in una zona di RAM
+    non inizializzata e resetta, cos&igrave; anche un guasto dal campo torna come un indirizzo e non
+    come un racconto.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

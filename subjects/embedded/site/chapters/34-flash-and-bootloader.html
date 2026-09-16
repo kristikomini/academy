@@ -18,25 +18,288 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 5 — STM32, concretely <span>&rsaquo;</span> Chapter 34</p>
+<p class="crumbs">Part 5 &mdash; STM32, concretely <span>&rsaquo;</span> Chapter 34</p>
 <h1>Flash, option bytes and the bootloader</h1>
-<p class="lede">Writing your own flash at runtime, storing settings that survive a power cut, and updating firmware in the field without bricking it.</p>
+<p class="lede">
+  Flash can only be erased in blocks and only written in one direction. Everything about field update
+  &mdash; the two-image layout, the validity check, the power-cut rule &mdash; follows from those two
+  physical facts, and the cost of getting it wrong is a van.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> Field update is where firmware stops being a student project, and the failure mode is a truck roll.</p>
+  <p>
+    <strong>Not named in the advert</strong>, and present in every product it describes. Field update
+    is where firmware stops being a student project: a machine installed at a customer needs a fix,
+    and either it can be updated over the cable it already has, or somebody drives there. The
+    automotive side of the corpus names the same mechanism explicitly &mdash; the UDS sequence in
+    <a href="49b-uds.html">chapter 49b</a> is this chapter seen from the tester's end.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="physics">What flash can and cannot do</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Flash memory has an odd asymmetry. Erasing sets a whole block to all ones, and it is slow &mdash;
+    hundreds of milliseconds. Writing can only turn ones into zeros, in small pieces. You cannot turn
+    a zero back into a one without erasing the entire block it lives in.
+  </p>
+  <p>
+    So you cannot just change a byte. You erase a block, then write. And while a block is being erased
+    or written, the processor usually cannot read the flash it is executing from &mdash; which is a
+    problem when the program lives there.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>Granularity.</strong> Erase is per sector or page &mdash; and on older F4 parts sectors
+        are wildly unequal, from 16 KB to 128 KB, which shapes any layout you design. Write is per
+        word or per double word, and many parts refuse a second write to an already-written location
+        because of ECC.</li>
+    <li><strong>Timing.</strong> A sector erase is tens to hundreds of milliseconds, during which the
+        flash is unavailable. Code that must run then &mdash; the writing routine itself, and any
+        interrupt that can fire &mdash; must execute from RAM, or interrupts must be disabled, and
+        disabling interrupts for 200 ms has consequences for
+        <a href="43-timing-and-jitter.html">everything else in the system</a>. This is also why a
+        <a href="28-low-power-and-watchdog.html">watchdog</a> period must accommodate a flash write,
+        and why declaring that deadline honestly is better than hiding it.</li>
+    <li><strong>Endurance.</strong> Ten thousand cycles or so per sector. Writing a counter to flash
+        every second destroys a sector in hours, which is why parameter storage uses wear levelling or
+        an append-until-full-then-compact scheme &mdash; ST's EEPROM emulation note is exactly this,
+        and it is worth reading once.</li>
+    <li><strong>Unlock sequences.</strong> Flash control registers are locked behind a magic key
+        sequence, deliberately, so a wild pointer cannot erase the program.</li>
+  </ul>
+  <p>
+    <strong>Option bytes</strong> are a separate small area holding hardware-level configuration:
+    brown-out level, whether the watchdog starts in hardware, boot selection, write protection per
+    sector, and <strong>read protection (RDP)</strong>. RDP level 1 blocks debugger access to flash,
+    and returning to level 0 mass-erases the chip &mdash; which is the intended behaviour. RDP level 2
+    disables the debug interface permanently and irreversibly: the part can never be debugged again,
+    and a mistake here turns a board into scrap. Setting it is a production decision taken
+    deliberately, never a development convenience.
+  </p>
+</div>
+
+<h2 id="bootloader">The bootloader, and the layout it forces</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A program cannot rewrite itself while it is running. So the flash is split: a small program at the
+    start that never changes, and the main application after it. The small one runs first, decides
+    whether to accept a new application, and then jumps to it.
+  </p>
+  <p>
+    The rule that makes it safe is simple to state and easy to get wrong: at every instant, including
+    the instant the power fails, there must still be a working program that will run at the next
+    power-up.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Two layouts, and the choice is a real trade:
+  </p>
+  <ul>
+    <li><strong>Bootloader plus one application slot.</strong> Cheapest in flash. The update window is
+        unsafe &mdash; the old image is already erased &mdash; but recoverable, because a power cut
+        leaves the bootloader intact and it can simply ask for the image again on the next boot. The
+        device is out of service until it is re-flashed, which for a machine in a plant is often
+        acceptable and for a vehicle often is not.</li>
+    <li><strong>Bootloader plus two slots (A/B).</strong> Doubles the application flash, and the
+        update is atomic: write the inactive slot, verify it, then switch a pointer. A power cut at
+        any moment leaves the running image untouched. This is the layout a product with remote update
+        should have, and the extra cost is why part selection in
+        <a href="29-the-stm32-family.html">chapter 29</a> says to leave headroom.</li>
+  </ul>
+  <p>
+    The bootloader's own logic, in order, and each line is there because of a specific failure:
+  </p>
+  <ol>
+    <li><strong>Validate before jumping.</strong> A magic number, a length and a
+        <strong>CRC over the whole image</strong>, stored in a header the build process fills in. An
+        image that does not validate is not run &mdash; that check is what makes a half-written flash
+        survivable.</li>
+    <li><strong>Jump properly:</strong> set the vector table offset (VTOR) to the application's base,
+        load its initial stack pointer from the first word, and branch to the reset handler at the
+        second. <strong>De-initialise everything you enabled first</strong> &mdash; peripherals,
+        interrupts, clocks &mdash; because the application expects reset defaults, and a live DMA or
+        an enabled interrupt from the bootloader will fire into an application that has no handler for
+        it yet. That is the classic &ldquo;works standalone, crashes when launched by the
+        bootloader&rdquo; bug.</li>
+    <li><strong>Keep an escape hatch.</strong> A pin, a command, or a boot counter that falls back
+        after N failed starts. A device whose only path to recovery is a working application is a
+        device that can brick itself with a bad update.</li>
+    <li><strong>Consider authenticity.</strong> A CRC proves the image is intact, not that it is
+        yours. Signature verification is increasingly a requirement rather than a luxury, and in
+        Europe the Cyber Resilience Act is making it one for connected products.</li>
+  </ol>
+  <p>
+    ST parts also carry a <strong>system bootloader</strong> in ROM, selectable with the BOOT0 pin,
+    which speaks UART, USB DFU, CAN and more. It is factory-provided and cannot be bricked, so it is
+    the last-resort recovery path for a board with no debugger attached &mdash; worth knowing exists
+    before the night you need it.
+  </p>
+</div>
+
+<h2 id="delivering">Delivering the update</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The new program arrives over whatever cable the device already has: a serial line, a field bus, a
+    network. The transfer is in numbered blocks, so nothing can go missing unnoticed, and at the end
+    the whole thing is checked before it is allowed to run.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Whatever the transport, the protocol shape is the same &mdash; and recognising that it is the same
+    is the point of this section. Enter update mode; erase or prepare the target area; transfer
+    blocks that carry a sequence number and are individually acknowledged; verify a checksum over the
+    whole image; then activate and reset. That is <a href="49b-uds.html">UDS services 0x34, 0x36,
+    0x37 and 0x31</a> in automotive, a vendor's XMODEM-like protocol over
+    <a href="46-uart.html">UART</a>, a block of
+    <a href="50-modbus-rtu.html">Modbus</a> registers in a plant, or an MQTT topic
+    plus a file in an IoT product. Same five steps every time.
+  </p>
+  <p>
+    Field realities worth designing for. <strong>The update must not start while the machine is
+    running</strong> &mdash; that is the <em>conditionsNotCorrect</em> refusal from chapter 49b, and
+    it belongs in the device, not in the tool, because the tool cannot see the plant.
+    <strong>Report progress</strong>, because an operator watching a device that appears dead for
+    ninety seconds will power-cycle it. And <strong>version compatibility is bidirectional</strong>:
+    the bootloader must refuse an image built for different hardware, and the application must know
+    which bootloader it is running under, because eventually there will be two generations of both in
+    the field at once.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>flash, erase, sector, page, write, endurance, wear, levelling, eeprom, emulation</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>The update works perfectly a hundred times, and the failure you actually ship is the power
+    cut you never tested.</strong>
+  </p>
+  <p>
+    Every update mechanism is tested by updating. Almost none are tested by interrupting the update,
+    and the interruption is the only case that decides whether the design is correct. The question to
+    answer for <em>every</em> instant of the sequence is: if power is removed exactly here, what runs
+    at the next power-up? If the honest answer is &ldquo;nothing, until somebody connects a
+    programmer&rdquo;, then the field failure is a van, a technician and a day.
+  </p>
+  <p>
+    The way to test it is unglamorous and definitive: put the device on a bench supply and cut the
+    power at random points during a hundred updates, automated with a relay and a script. Anything
+    that survives that is genuinely robust; anything that does not has told you exactly where its
+    unsafe window is. This is the single most valuable test in this chapter and it takes an afternoon
+    to build.
+  </p>
+  <p>
+    Two more that bite, both avoidable by design rather than by care. <strong>A power cut during an
+    option-byte write</strong> can leave the chip in a state where protection is half-applied &mdash;
+    so never write option bytes as part of a routine update. And <strong>a parameter block whose
+    layout changed between versions</strong>: after the update the device reads the new struct out of
+    the old bytes and comes up with plausible nonsense. Version the parameter block, migrate it
+    explicitly on first boot, and say so in the
+    <a href="66-git-review-release.html">release notes</a>.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> A Nucleo and a serial adapter are enough, and this exercise is worth more
+  on a junior CV than any number of blinking LEDs.</p>
+  <pre><code>1. Move your application. Change ORIGIN of FLASH in the linker script
+   to 0x08008000, rebuild, flash it, and watch it NOT run -- because
+   the chip still boots at 0x08000000. Then set VTOR in your startup
+   and understand exactly why it is needed.
+
+2. Write a minimal bootloader, about 200 lines. At 0x08000000: check
+   for a magic word and a valid CRC at the application base, then
+   de-init everything, set VTOR, load SP from the first word and jump
+   to the second. Flash both and watch your application start from
+   behind it.
+
+3. Add the CRC to the build. A small script that appends a header
+   with length and CRC32 to the binary after the linker runs, and a
+   bootloader that recomputes it. Now corrupt one byte of the image
+   with a hex editor and confirm the bootloader refuses to run it.
+
+4. Add the transfer. Receive the image over UART in 256-byte numbered
+   blocks with an acknowledgement each, write them to the second
+   half of flash, verify, then switch. Reuse the framing from chapter
+   47 rather than inventing a new one.
+
+5. THEN TEST THE POWER CUT. Bench supply, a script that flips the
+   supply off at a random point in the update, a hundred iterations,
+   automated. Record which interruption points recover and which do
+   not. Fixing what you find is the actual lesson.
+
+6. Finally, deliberately leave a timer interrupt enabled in the
+   bootloader before jumping, and watch the application crash on
+   startup. That five-minute experiment is the bug that costs other
+   people a week.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Erase sets ones, writing only clears bits</strong>, and erase granularity is a whole
+        sector.</li>
+    <li><strong>Flash is unreadable while being written</strong>, so the writing routine and any live
+        interrupt must run from RAM or not run at all.</li>
+    <li><strong>Endurance is finite.</strong> Never write a counter to flash at speed; use wear
+        levelling or append-and-compact.</li>
+    <li><strong>RDP level 2 is irreversible.</strong> It is a production decision, never a development
+        convenience.</li>
+    <li><strong>Never write option bytes during a routine update.</strong></li>
+    <li><strong>At every instant there must be a program that runs at the next power-up.</strong> That
+        is the whole design rule.</li>
+    <li><strong>Validate before jumping</strong> &mdash; magic, length and CRC over the image, filled
+        in by the build.</li>
+    <li><strong>De-initialise everything before jumping to the application</strong>, or a stray
+        interrupt lands in a program that cannot handle it yet.</li>
+    <li><strong>Set VTOR</strong>, load SP from the first word, branch to the second.</li>
+    <li><strong>Keep an escape hatch</strong>: a pin, a command, or a boot counter that falls back.</li>
+    <li><strong>A CRC proves integrity, not authenticity.</strong> Signing is becoming a legal
+        requirement for connected products.</li>
+    <li><strong>Test the power cut, automatically, a hundred times.</strong> It is the only test that
+        decides whether the design is right.</li>
+    <li><strong>Version the parameter block and migrate it explicitly</strong>, or an update produces
+        plausible nonsense.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Come progetta l&rsquo;aggiornamento firmware in campo?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Parto da una regola sola: in ogni istante, anche quello in cui va via la corrente, deve
+    restare sul dispositivo un programma che parte al riavvio successivo. Da l&igrave; viene tutto il
+    resto. Bootloader piccolo e immutabile all&rsquo;inizio della flash, e se ho spazio due slot
+    applicativi: scrivo quello inattivo, lo verifico, e solo alla fine sposto il puntatore &mdash;
+    cos&igrave; l&rsquo;aggiornamento &egrave; atomico e una caduta di tensione non tocca
+    l&rsquo;immagine che sta girando. L&rsquo;immagine ha un header con magic, lunghezza e CRC messi
+    dallo script di build, e il bootloader non salta se il CRC non torna. Prima del salto
+    de-inizializzo tutto quello che ho acceso &mdash; periferiche, interrupt, clock &mdash; imposto
+    VTOR, carico lo stack pointer dalla prima parola e salto alla seconda: se lascio un interrupt
+    attivo, l&rsquo;applicazione crasha all&rsquo;avvio e sembra un problema suo, ed &egrave; un bug
+    che costa una settimana a chi non l&rsquo;ha mai visto. Poi tengo sempre una via di fuga, un pin o
+    un contatore di boot falliti. E la cosa che secondo me distingue un meccanismo testato da uno
+    sperato: il test della caduta di tensione. Alimentatore da banco, un rel&egrave;, uno script che
+    toglie corrente in un punto casuale, cento aggiornamenti di fila. Tutti testano che
+    l&rsquo;aggiornamento funzioni; quasi nessuno testa che si possa interrompere, ed &egrave;
+    l&rsquo;unico caso che decide se il progetto &egrave; giusto.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

@@ -18,25 +18,285 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 5 — STM32, concretely <span>&rsaquo;</span> Chapter 33</p>
+<p class="crumbs">Part 5 &mdash; STM32, concretely <span>&rsaquo;</span> Chapter 33</p>
 <h1>ADC, DAC and the analogue front end</h1>
-<p class="lede">Resolution, reference, sampling time and noise. Turning a count into a temperature, and the errors that live in each step.</p>
+<p class="lede">
+  Turning a voltage into a number, and the four things that decide whether that number means anything:
+  the reference it is measured against, the time the sampling capacitor was given to charge, what was
+  done about noise, and whether anybody wrote down the units.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The chapter that connects directly to plc-lab exercise 5: scaling a raw count is the same problem on both sides of the wire.</p>
+  <p>
+    <strong>Not named in the advert</strong>, and unavoidable in the product behind it: a liquid
+    cooling system measures temperatures, pressures and flow, and every one of those arrives as a
+    voltage. This chapter is also the direct counterpart of <code>plc-lab</code> exercise 5 &mdash;
+    scaling a raw count into engineering units is the same problem on both sides of the cable, and
+    <a href="58-talking-to-the-plc.html">chapter 58</a> is where the two sides agree on the
+    convention.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="counts">From volts to counts, and back to units</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    An ADC compares the voltage on a pin against a reference voltage and reports where it falls, as a
+    whole number. With 12 bits it reports one of 4096 steps: zero means ground, 4095 means the
+    reference.
+  </p>
+  <p>
+    That number is meaningless on its own. It only becomes a temperature or a pressure when you apply
+    the sensor's own relationship &mdash; and when you know how accurate the reference itself is,
+    because everything is measured relative to it.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The conversion is <code>V = raw &times; VREF / 4095</code>, and the accuracy of the whole chain is
+    the accuracy of <strong>VREF</strong>. On many boards VREF is simply the 3.3 V supply, so a
+    regulator specified at &plusmn;2 % makes every reading &plusmn;2 % no matter how many bits the ADC
+    has. Resolution is not accuracy, and a 16-bit result on a 2 % reference is a precisely reported
+    wrong number. When accuracy matters, the answers are a dedicated voltage reference, or a
+    ratiometric measurement &mdash; powering the sensor from the same reference so the ratio cancels
+    &mdash; which costs nothing and is frequently the right engineering answer.
+  </p>
+  <p>
+    ST parts help with two built-ins worth knowing about: an <strong>internal reference channel</strong>
+    with a factory-calibrated value in system memory, from which the actual VDDA can be computed at
+    run time, and an internal temperature sensor with its own calibration points. Reading the
+    calibration constants rather than the datasheet's typical values is the difference between a
+    temperature reading that is a few degrees out and one that is usable.
+  </p>
+  <p>
+    On the scaling itself, the conventions this course keeps returning to:
+  </p>
+  <ul>
+    <li><strong>Scaled integers, not floats.</strong> Store tenths of a degree in an
+        <code>int16_t</code>, not 23.4 in a <code>float</code>. It is exact, it is what
+        <a href="58-talking-to-the-plc.html">the PLC expects</a>, and it avoids dragging
+        floating-point into an interrupt path.</li>
+    <li><strong>Do the arithmetic in a wide enough type</strong> &mdash;
+        <code>(int32_t)raw * span / 4095</code> overflows a 16-bit intermediate long before you
+        expect, which is <a href="03-types-and-integers.html">chapter 3</a> arriving in the real
+        world.</li>
+    <li><strong>Name the unit in the identifier.</strong> <code>temp_c_x10</code>,
+        <code>press_mbar</code>. The unit lives in the name or it lives in somebody's memory, and the
+        second one is how a Mars orbiter was lost.</li>
+    <li><strong>Range-check before converting.</strong> A raw value at 0 or at full scale usually
+        means a disconnected or shorted sensor, not a real extreme &mdash; and reporting
+        &ldquo;&minus;40 &deg;C&rdquo; from a broken wire is worse than reporting a fault.</li>
+  </ul>
+</div>
+
+<h2 id="sampling">Sampling time, impedance, and the capacitor nobody pictures</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Inside the chip the ADC does not measure the pin directly. It connects a small capacitor to the
+    pin, waits for it to charge to the same voltage, disconnects it, and then measures the capacitor.
+  </p>
+  <p>
+    If it does not wait long enough, the capacitor never quite reaches the pin's voltage and the
+    reading is low &mdash; and how long is long enough depends on what is connected outside. A sensor
+    through a big resistor charges it slowly.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    This is the single most common cause of readings that are &ldquo;nearly right&rdquo;. The sample
+    and hold capacitor charges through the source impedance, so the required sampling time is a
+    multiple of that RC &mdash; roughly nine time constants for 12-bit settling. The datasheet states a
+    maximum source impedance for each sampling-time setting, and the practical consequences are:
+  </p>
+  <ul>
+    <li><strong>A high-impedance divider needs a long sampling time</strong> or an op-amp buffer in
+        front of it. A 100 k&Omega; divider straight into an ADC at the shortest sampling time reads
+        low, consistently, and looks like a calibration error.</li>
+    <li><strong>A multiplexed ADC carries charge between channels.</strong> Scanning from a 3 V
+        channel to a 0.1 V channel with too short a sampling time shows the second channel pulled up
+        by the first &mdash; the classic &ldquo;channel 2 follows channel 1&rdquo; report, and the cure
+        is sampling time, not software.</li>
+    <li><strong>A small capacitor at the pin</strong> (typically 100 nF, right at the connector)
+        supplies the charge locally and makes the whole problem smaller. That is a schematic
+        conversation (<a href="63-reading-a-schematic.html">chapter 63</a>), and knowing to ask for it
+        is firmware being useful at review time.</li>
+  </ul>
+  <p>
+    Two more facts that decide whether a measurement is real. <strong>Aliasing:</strong> anything
+    faster than half your sampling rate does not vanish, it comes back disguised as a slow signal, and
+    no amount of software fixes it &mdash; an RC low-pass filter before the pin is the only answer.
+    And <strong>oversampling</strong>: averaging N samples reduces random noise by the square root of
+    N, so 16 samples buy two extra effective bits for free, but averaging does nothing at all against
+    a periodic interferer such as a switching regulator or 50 Hz mains &mdash; for that, sample
+    synchronously with the interference or filter it in hardware.
+  </p>
+  <p>
+    The architecture that makes all of this deterministic: a <strong>timer triggers the ADC, the ADC
+    feeds DMA</strong>, and the CPU is handed a complete block of samples taken at exact instants
+    (chapters <a href="32-timers-and-pwm.html">32</a> and <a href="27-dma.html">27</a>). Sampling in a
+    software loop means your sample instants jitter with whatever else the system was doing, which is
+    invisible in the data and fatal to any frequency analysis.
+  </p>
+</div>
+
+<h2 id="dac">Output: DAC and PWM as an analogue source</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Going the other way &mdash; producing a voltage &mdash; there are two options. A real DAC sets a
+    voltage directly. Or you can switch a pin on and off quickly and smooth it with a resistor and
+    capacitor, which is cheaper and slower.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    A <strong>DAC</strong> gives a clean voltage with a settling time in microseconds, but it drives
+    almost no current &mdash; anything real needs a buffer amplifier after it. Typical uses are a
+    reference for a comparator, an offset, or a waveform played out of a table by DMA on a timer
+    trigger, which costs no CPU at all.
+  </p>
+  <p>
+    <strong>PWM plus an RC filter</strong> is the industrial workhorse for slow set-points: cheap,
+    available on many more pins, and the trade is explicit &mdash; the filter's cut-off must be far
+    below the PWM frequency to suppress ripple, and that same filter sets how slowly the output can
+    change. Ripple and response time are the same knob turned in opposite directions, and saying that
+    out loud is what distinguishes an engineering answer from a recipe.
+  </p>
+  <p>
+    The industrial context worth carrying into an interview: outside the board, analogue signalling is
+    usually <strong>4&ndash;20 mA</strong>, not a voltage, because a current loop is immune to voltage
+    drop along a long cable and because <strong>0 mA is distinguishable from a valid zero</strong>
+    &mdash; a broken wire reads 0 and 4 mA means &ldquo;zero, and I am alive&rdquo;. That is the same
+    design instinct as the heartbeat in <a href="58-talking-to-the-plc.html">chapter 58</a>: make the
+    absence of a signal detectable rather than plausible.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>adc, dac, resolution, bits, reference, voltage, vref, sampling, time, source</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>The reading is noisy, so a filter is added in software &mdash; and the filter hides a
+    hardware fault for six months.</strong>
+  </p>
+  <p>
+    It is the most natural sequence in the world. The value jumps around by twenty counts, somebody
+    adds a moving average, the display goes still, and the ticket is closed. What was actually
+    happening was a ground loop, or an unfiltered switching regulator, or a sensor cable run beside a
+    motor cable &mdash; and the average has not removed the interference, it has removed your ability
+    to see it. When the interference gets worse in the field, the same average now hides a genuine
+    measurement error, and the report reads &ldquo;temperature reads 4 degrees low sometimes&rdquo;.
+  </p>
+  <p>
+    The discipline: <strong>look at the raw samples before filtering anything.</strong> Capture a few
+    thousand raw values to RAM, dump them, and look at the distribution. Random scatter around a mean
+    is noise, and averaging is the right answer. A periodic pattern is an interferer, and its
+    frequency names the culprit &mdash; 50 Hz is mains, tens of kilohertz is a switching supply, and
+    something at exactly your PWM frequency is your own output coupling back into your own input.
+    Steps that correlate with a relay or a motor are a ground problem. Only the first of those is a
+    firmware problem.
+  </p>
+  <p>
+    And keep the filtered and unfiltered values both available in diagnostics. A device that can
+    report its own raw measurement is a device somebody can debug over a cable instead of on site,
+    which is the same argument as the error counters in
+    <a href="49-can-and-canopen.html">chapter 49</a>.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> A Nucleo, a potentiometer and a few resistors cover all of this.</p>
+  <pre><code>1. Read a potentiometer and print raw counts. Turn it to both ends
+   and confirm you see roughly 0 and 4095. Then compute volts and
+   print both. Keep the raw value visible forever after -- that habit
+   is exercise 5.
+
+2. Demonstrate the sampling-time trap on purpose. Put a 100 k
+   resistor in series with the pot's wiper and repeat with the
+   SHORTEST sampling time: the reading is low. Now raise the sampling
+   time and watch it come right. Then add 100 nF at the pin and watch
+   the short setting work again. Three minutes, and it is the most
+   common analogue bug in the field.
+
+3. Demonstrate channel crosstalk. Scan two channels, one tied to
+   3.3 V and one to ground, with a short sampling time -- watch the
+   grounded one read above zero. Fix it with sampling time.
+
+4. Oversample honestly. Capture 1000 raw samples of a fixed voltage
+   into an array and compute mean and standard deviation. Then
+   average 16 and recompute. The noise should drop by about four.
+   That is the square-root rule confirmed on your own board.
+
+5. Then dump those 1000 raw samples over the UART and plot them.
+   Decide from the PLOT whether you have noise or an interferer
+   BEFORE writing any filter. If there is a periodic component, find
+   its frequency and name the source.
+
+6. Timer-trigger the ADC into a DMA buffer at exactly 1 kHz and
+   confirm, with a toggling pin on the DMA complete interrupt, that
+   the block arrives at a fixed rate no matter what the main loop is
+   doing. Compare against sampling in a software loop while sending
+   UART traffic -- the jitter is visible.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Accuracy is the reference's accuracy.</strong> Resolution is not accuracy; a 12-bit
+        result on a 2 % supply is 2 % wrong.</li>
+    <li><strong>Prefer ratiometric measurement</strong>, or a real reference, when the number
+        matters.</li>
+    <li><strong>Read the factory calibration constants</strong> for the internal reference and
+        temperature sensor instead of the typical values.</li>
+    <li><strong>Sampling time must suit the source impedance</strong>, or readings are low and
+        channels bleed into each other.</li>
+    <li><strong>Aliasing cannot be fixed in software.</strong> Filter before the pin.</li>
+    <li><strong>Averaging beats random noise by the square root of N</strong> and does nothing against
+        a periodic interferer.</li>
+    <li><strong>Look at raw samples before adding any filter</strong>, and keep the raw value available
+        in diagnostics.</li>
+    <li><strong>Timer-trigger the ADC and DMA the result.</strong> Software sampling jitters
+        invisibly.</li>
+    <li><strong>Scaled integers with the unit in the identifier</strong>, and wide enough intermediate
+        types.</li>
+    <li><strong>Full scale and zero usually mean a broken sensor</strong>, so range-check and report a
+        fault rather than a plausible extreme.</li>
+    <li><strong>A DAC needs a buffer; PWM plus RC trades ripple against response time</strong>; and in
+        the field, 4&ndash;20 mA exists so that a broken wire is distinguishable from a real zero.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;La lettura di un sensore &egrave; rumorosa. Cosa fa?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;La prima cosa che <strong>non</strong> faccio &egrave; mettere subito una media: la
+    media non toglie il disturbo, toglie la possibilit&agrave; di vederlo. Prima catturo qualche
+    migliaio di campioni grezzi in RAM, li tiro fuori e li guardo. Se &egrave; dispersione casuale
+    intorno a un valore medio, allora s&igrave;, &egrave; rumore e la media &egrave; la risposta
+    giusta: mediando N campioni il rumore scende di radice di N. Ma se nel grafico vedo una
+    periodicit&agrave;, quella frequenza mi dice il colpevole: cinquanta hertz &egrave; la rete,
+    decine di kilohertz &egrave; un alimentatore switching, e se &egrave; esattamente la mia frequenza
+    di PWM allora mi sto accoppiando da solo. E se i gradini arrivano quando scatta un rel&egrave;
+    &egrave; un problema di massa. Solo il primo caso &egrave; un problema di firmware. Poi ci sono
+    due cose che guardo sempre: il tempo di campionamento rispetto all&rsquo;impedenza della sorgente
+    &mdash; con un partitore ad alta impedenza e il sampling time pi&ugrave; corto la lettura viene
+    bassa e sembra un errore di taratura &mdash; e il fondo scala: zero o 4095 di solito vuol dire
+    sensore staccato o in corto, e riportare meno quaranta gradi per un filo rotto &egrave; peggio che
+    riportare un guasto. E nella diagnostica tengo esposto sia il valore filtrato sia quello
+    grezzo.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

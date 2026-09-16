@@ -18,25 +18,274 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 4 — The microcontroller itself <span>&rsaquo;</span> Chapter 25</p>
+<p class="crumbs">Part 4 &mdash; The microcontroller itself <span>&rsaquo;</span> Chapter 25</p>
 <h1>Clocks and PLLs</h1>
-<p class="lede">Nothing works until the clock tree is right, and a UART at the wrong baud is almost always a clock problem rather than a UART problem.</p>
+<p class="lede">
+  Every peripheral is asleep until something clocks it, every baud rate and every timer period is
+  derived from a clock you chose, and the most common bug in embedded work is code that is entirely
+  correct running on a peripheral that is not being clocked at all.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The most common cause of a peripheral that is configured correctly and still does not work.</p>
+  <p>
+    <strong>Not named in any advert</strong>, and named in every debugging session. It is the
+    prerequisite behind the advert's <em>protocolli di comunicazione seriale</em>: a UART's baud rate
+    is a division of its peripheral clock, so &ldquo;the other end sees garbage&rdquo; is very often a
+    clock-tree question rather than a protocol one.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="the-tree">The tree: source, PLL, prescalers, gates</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A microcontroller needs a heartbeat. It can use a cheap one built into the chip, or an accurate
+    one from a crystal on the board. That heartbeat is usually slow &mdash; 8 or 16 MHz &mdash; so a
+    circuit called a PLL multiplies it up to the speed the processor runs at.
+  </p>
+  <p>
+    From there the fast clock is divided down again, in stages, for different parts of the chip: one
+    speed for the core, slower ones for the peripheral buses. And at the very end, each peripheral has
+    its own switch. That switch is off when the chip powers up.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The chain, in the order the reference manual draws it:
+  </p>
+  <ul>
+    <li><strong>Sources.</strong> <strong>HSI</strong>, the internal RC oscillator &mdash; instantly
+        available, typically &plusmn;1 % over temperature. <strong>HSE</strong>, an external crystal
+        or oscillator &mdash; tens of parts per million, needs milliseconds to stabilise, and can fail.
+        <strong>LSI</strong> and <strong>LSE</strong>, the slow pair, for the watchdog and the RTC
+        (<a href="28-low-power-and-watchdog.html">chapter 28</a>).</li>
+    <li><strong>The PLL</strong>, configured as divide, multiply, divide: on an F4 that is
+        <code>M</code>, <code>N</code>, <code>P</code>, each with a legal range and an intermediate
+        frequency that must stay inside a window. CubeMX's clock view exists because these constraints
+        interact.</li>
+    <li><strong>SYSCLK</strong>, selected from HSI, HSE or the PLL, then divided by the
+        <strong>AHB</strong> prescaler to give HCLK &mdash; the core and memory clock &mdash; and again
+        by the <strong>APB1</strong> and <strong>APB2</strong> prescalers for the peripheral buses.
+        APB1 is usually limited to half the maximum, which is why the same timer can run at different
+        speeds depending on which bus it is on.</li>
+    <li><strong>Peripheral clock enables</strong>, one bit per peripheral in the RCC, all zero at
+        reset.</li>
+  </ul>
+  <p>
+    Two rules that are easy to skip and expensive to skip. <strong>Flash wait states must be raised
+    before the core speeds up</strong> and lowered only after it slows down: flash is slower than the
+    core, and running 168 MHz against a zero-wait-state setting is a hard fault at best. And
+    <strong>a timer clocked from an APB bus with a prescaler greater than 1 runs at twice the bus
+    clock</strong> &mdash; an ST design quirk, stated in one line of the reference manual, and a
+    perennial source of periods that are exactly half or double what was intended.
+  </p>
+  <p>
+    Worth knowing for a real product: the <strong>Clock Security System</strong> detects an HSE that
+    stops &mdash; a cracked crystal, a bad solder joint &mdash; and switches back to HSI while raising
+    an NMI. A machine whose crystal dies and silently keeps running at a different speed is a machine
+    doing something unpredictable at full power; the CSS is a few lines and turns that into a defined
+    event.
+  </p>
+</div>
+
+<h2 id="accuracy">Accuracy: where it matters and where it does not</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The built-in oscillator is convenient but not very accurate. For blinking an LED that is fine.
+    For talking to another device it may not be: both ends have to agree on the speed of the bits, and
+    if your clock is off by a couple of percent the other end starts reading the wrong bits.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The arithmetic that decides it, for an asynchronous link
+    (<a href="46-uart.html">chapter 46</a>): the receiver samples in the middle of each bit after
+    synchronising on the start edge, so by the tenth bit a constant frequency error has accumulated
+    ten times. The usual budget is <strong>about 2 % total between the two ends</strong>, which means
+    each end should stay within roughly 1 %. HSI at &plusmn;1 % across temperature is therefore
+    <em>marginal</em> rather than safe, and that is the honest description: it usually works on the
+    bench at room temperature and fails in a cabinet in August.
+  </p>
+  <p>
+    Where each source is the right answer:
+  </p>
+  <ul>
+    <li><strong>HSI is fine</strong> for internal timing, PWM, ADC triggering, control loops, and any
+        protocol with its own clock line &mdash; SPI and I&sup2;C carry a clock, so accuracy does not
+        enter into it.</li>
+    <li><strong>HSE (crystal) is required</strong> for asynchronous serial at any distance, for CAN
+        &mdash; whose bit timing and sample point (<a href="49-can-and-canopen.html">chapter 49</a>)
+        assume a stable reference &mdash; for USB, and for Ethernet.</li>
+    <li><strong>LSE (32.768 kHz)</strong> for a real-time clock that must keep the date across months,
+        not for anything fast.</li>
+  </ul>
+  <p>
+    And the number nobody computes until it bites: the <strong>baud rate error</strong> from integer
+    division. A UART divides its peripheral clock by an integer (with a fractional part on ST parts),
+    so at some clock and baud combinations the achievable rate is 1.5 % off before the oscillator
+    error is added. The reference manual prints a table of these; CubeMX shows the realised rate. Read
+    it, rather than assuming the number you typed is the number on the wire.
+  </p>
+</div>
+
+<h2 id="bringup">Bringing the clock tree up, and proving it</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Since everything depends on the clock, the first thing to do on a new board is prove the clock is
+    what you think it is &mdash; not assume it. The chip can output its internal clock on a pin, so you
+    can put a probe on it and see the real number.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The bring-up order, which is also the order things go wrong:
+  </p>
+  <ol>
+    <li>Start on HSI and get something visible working &mdash; a pin toggling, a character on a UART.
+        A board that does nothing at all is much harder to diagnose than a slow one.</li>
+    <li>Enable HSE and <strong>wait for its ready flag with a timeout</strong>. No timeout means a
+        board with a bad crystal hangs forever in <code>SystemClock_Config</code>, before any of your
+        diagnostics exist &mdash; the worst possible place to hang.</li>
+    <li>Set the flash wait states, then configure and enable the PLL, then switch SYSCLK to it, then
+        read back the status bits to confirm the switch actually happened.</li>
+    <li>Update <code>SystemCoreClock</code>. Every delay and baud calculation in CMSIS-based code
+        reads that variable, and a stale value produces timing that is wrong by exactly the ratio you
+        forgot.</li>
+    <li>Prove it: route SYSCLK or HCLK to the <strong>MCO</strong> pin, divided down, and measure it
+        with a <a href="62-scope-and-logic-analyser.html">scope or logic analyser</a>. Thirty seconds,
+        and it converts a belief into a measurement.</li>
+  </ol>
+  <p>
+    A cheap alternative when no scope is available: toggle a GPIO in a loop of known length, or set up
+    a timer for exactly one second and blink. If the LED blinks at half a hertz, your clock is half
+    what you think &mdash; and you have learned it in the first minute rather than in the middle of a
+    protocol bug three weeks later.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>clock, tree, pll, hse, hsi, lse, lsi, oscillator, crystal, load</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>The peripheral clock enable bit, and the fact that its absence is completely
+    silent.</strong>
+  </p>
+  <p>
+    At reset every peripheral clock gate is closed. Write a peripheral's configuration registers with
+    the gate closed and the writes go nowhere &mdash; on most STM32 parts no fault, no flag, nothing.
+    Read back and you see zeros. Beginners conclude that the part is faulty or that the HAL is
+    broken; the fix is one line in the RCC.
+  </p>
+  <p>
+    Two subtler versions of the same thing, both of which catch people who already know about the
+    first. There is a documented <strong>delay between enabling a peripheral clock and being able to
+    access the peripheral</strong> &mdash; ST's own errata describe it, and the HAL's macros insert a
+    read-back for exactly this reason; enabling a clock and writing a register in the very next
+    instruction can lose that write. And a <strong>GPIO port is a peripheral too</strong>, so a pin
+    that does nothing when its timer is perfectly configured is frequently a GPIO port whose clock was
+    never enabled.
+  </p>
+  <p>
+    The habit that makes all of it a non-event: after configuring any peripheral, <strong>read at
+    least one register back and compare</strong>. It costs two lines and it converts the entire class
+    of failure from a hunt into an assertion &mdash; which is the same argument as reading the map
+    file in <a href="36-build-and-linker-script.html">chapter 36</a> and the error counters in
+    <a href="49-can-and-canopen.html">chapter 49</a>.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> Steps 1 and 2 need nothing but the documentation; the rest want a
+  Nucleo.</p>
+  <pre><code>1. Draw your own clock tree from the reference manual, on paper, for
+   the part you have: source -> PLL M,N,P -> SYSCLK -> AHB -> APB1,
+   APB2, with the real numbers and the legal limits beside each stage.
+   Then open CubeMX's clock view and compare. Where they differ, you
+   misread something -- find out what.
+
+2. Compute a baud rate error by hand. With PCLK1 at 42 MHz and a
+   target of 115200, what divisor does the UART need, what rate does
+   that actually give, and what is the percentage error? Then do it
+   for 921600 and see the error grow.
+
+3. Enable a peripheral clock, write a configuration register, read it
+   back, and print both -- then comment out the clock enable and do it
+   again. Seeing the write vanish in silence, deliberately, once, is
+   worth more than reading this paragraph.
+
+4. Put HCLK on the MCO pin with a prescaler and measure it. If you
+   have no scope, blink an LED from a timer configured for exactly
+   1 Hz and time ten blinks with a phone.
+
+5. Break the crystal path. Configure HSE, then run the board with the
+   HSE selection pointing at a source that is not there, and confirm
+   your startup code times out and falls back to HSI instead of
+   hanging. Most published SystemClock_Config functions hang; fix
+   yours and keep it.
+
+6. Then enable the Clock Security System, start on HSE, and short the
+   crystal pins briefly with a jumper wire while a counter prints. The
+   NMI should fire and the board should keep running on HSI. That is a
+   genuinely impressive thing to have done and to describe.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Every peripheral clock gate is closed at reset</strong>, and writes to an unclocked
+        peripheral vanish silently.</li>
+    <li><strong>Read a register back after configuring.</strong> Two lines; removes a whole class of
+        bug.</li>
+    <li><strong>Raise flash wait states before raising the clock</strong>, and lower them only
+        afterwards.</li>
+    <li><strong>Wait for every ready flag with a timeout.</strong> A crystal that never starts must
+        not hang the board before diagnostics exist.</li>
+    <li><strong>Update <code>SystemCoreClock</code></strong>, or every delay and baud calculation is
+        wrong by a fixed ratio.</li>
+    <li><strong>An APB timer clock is doubled when its prescaler is not 1.</strong> It is one line in
+        the manual and it explains most factor-of-two timing bugs.</li>
+    <li><strong>HSI is marginal for asynchronous serial</strong>, and fine for anything with its own
+        clock line.</li>
+    <li><strong>Budget about 2 % total frequency error across an asynchronous link</strong>, and
+        include the integer-division baud error, not just the oscillator.</li>
+    <li><strong>Measure the clock on MCO</strong> rather than believing it.</li>
+    <li><strong>Enable the Clock Security System in a product</strong>, so a dead crystal is an event
+        rather than undefined behaviour.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Una periferica configurata bene non fa niente. Da dove parte?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Dal clock, sempre. Al reset tutti i gate dei clock delle periferiche sono chiusi, e su
+    STM32 se scrivo i registri di una periferica non clockata le scritture spariscono senza nessun
+    errore: rileggo e trovo zeri. Quindi la prima cosa che faccio &egrave; proprio quella, rileggere
+    un registro dopo averlo scritto &mdash; sono due righe e mi tolgono di mezzo un&rsquo;intera
+    famiglia di problemi. E mi ricordo che anche la porta GPIO &egrave; una periferica: tante volte il
+    timer &egrave; giusto e il pin non si muove perch&eacute; manca il clock della porta. Sull&rsquo;albero
+    dei clock la sequenza &egrave; sorgente, PLL, SYSCLK, prescaler AHB e APB, e due cose che non
+    salto mai: i wait state della flash vanno alzati <strong>prima</strong> di alzare la frequenza, e
+    ogni attesa di un flag di ready ha un timeout &mdash; se il quarzo non parte, il codice deve
+    ripiegare su HSI, non restare appeso dentro SystemClock_Config, che &egrave; il punto peggiore
+    dove potersi piantare. Sull&rsquo;accuratezza: con SPI o I2C il clock viaggia sul filo e non me ne
+    preoccupo, ma su UART o CAN serve il quarzo &mdash; l&rsquo;oscillatore interno all&rsquo;uno per
+    cento &egrave; al limite, funziona sul banco e ti lascia a piedi in quadro d&rsquo;estate. E
+    l&rsquo;errore del baud rate lo calcolo, perch&eacute; la divisione intera da sola pu&ograve;
+    portarne un altro uno e mezzo per cento.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

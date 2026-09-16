@@ -1,0 +1,15 @@
+# One person, two GitHub accounts.
+#
+# Commits up to 2026-09-13 were authored from the kristi2002 account; from
+# 2026-09-14 the remote and the local config are kristikomini. Both addresses
+# are Kristi's own. This file maps the older one onto the newer so git shortlog,
+# git log, git blame and git log --author all report a single contributor.
+#
+# It changes DISPLAY ONLY -- no commit is rewritten and no hash changes, and it
+# can be undone by deleting this file. GitHub's own contribution graph ignores
+# .mailmap entirely: it attributes by the email linked to an account, so the
+# older commits still show against kristi2002 on the website. Fixing that would
+# need a history rewrite and a force push, which was deliberately not done.
+#
+# Format: canonical name and address first, then the address to map from.
+Kristi Komini <94112247+kristikomini@users.noreply.github.com> <172889760+kristi2002@users.noreply.github.com>

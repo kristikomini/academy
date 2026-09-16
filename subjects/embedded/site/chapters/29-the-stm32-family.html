@@ -18,25 +18,277 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 5 — STM32, concretely <span>&rsaquo;</span> Chapter 29</p>
+<p class="crumbs">Part 5 &mdash; STM32, concretely <span>&rsaquo;</span> Chapter 29</p>
 <h1>The STM32 family, and choosing a part</h1>
-<p class="lede">F0 to H7, the part-number grammar, and how an engineer actually narrows thousands of options to three.</p>
+<p class="lede">
+  Two thousand part numbers, one naming scheme, and a selection process in which clock speed is almost
+  never the deciding factor. What the letters mean, what actually constrains the choice, and why the
+  question is asked at all in an interview.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p>This chapter answers <em>"Esperienza (anche accademica o di stage) su ambiente di sviluppo STM32"</em> &mdash; a line that appeared in the adverts this course was built from.</p>
+  <p>
+    This chapter answers <em>&ldquo;Esperienza (anche accademica o di stage) su ambiente di sviluppo
+    STM32&rdquo;</em> &mdash; a line that appeared in the adverts this course was built from, and the
+    one hard technical gate in the anchor posting. <a href="30-cube-hal-ll-registers.html">Chapter
+    30</a> is the toolchain half of that line; this is the silicon half.
+  </p>
+  <p>
+    Nobody expects a junior to have selected a part for production. They do expect you to read a part
+    number, know which family you worked on and why, and not to believe that a faster core is a better
+    choice.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="the-name">Reading the part number</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A part number like <code>STM32F407VGT6</code> looks like noise and is actually a sentence. Each
+    group of characters answers one question: which family, how fast and what peripherals, how many
+    pins, how much flash, what package, what temperature range.
+  </p>
+  <p>
+    Learning to read it takes five minutes and saves you from ordering the wrong chip &mdash; or from
+    reading the wrong manual for two hours.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <pre><code>STM32  F4  07  V   G   T   6
+  |     |   |  |   |   |   |
+  |     |   |  |   |   |   +-- temperature range (6 = -40..85 C, 7 = ..105)
+  |     |   |  |   |   +------ package (T = LQFP, J = UFBGA, Y = WLCSP...)
+  |     |   |  |   +---------- flash size (C=256K, E=512K, G=1M, I=2M)
+  |     |   |  +-------------- pin count (T=36, C=48, R=64, V=100, Z=144)
+  |     |   +----------------- sub-family / peripheral set
+  |     +--------------------- family: F0 F1 F2 F3 F4 F7 H7 / L0 L4 L5 U5 / G0 G4 / WB WL
+  +--------------------------- 32-bit ARM</code></pre>
+  <p>
+    The families divide by intent rather than by age:
+  </p>
+  <ul>
+    <li><strong>F0, G0, C0</strong> &mdash; cost-driven, Cortex-M0+. Where a job used to need an
+        8-bit part.</li>
+    <li><strong>F1</strong> &mdash; the old workhorse, M3, enormous installed base. Still in
+        production equipment everywhere, which matters because maintenance work exists.</li>
+    <li><strong>F4</strong> &mdash; M4 with FPU, the default general-purpose choice for a decade and
+        the most documented part on the internet. <strong>F7 / H7</strong> &mdash; M7 with caches,
+        for signal processing and heavy networking.</li>
+    <li><strong>G4</strong> &mdash; M4 aimed at motor control and digital power: fast ADCs, advanced
+        timers, comparators. A cooling-system controller with pumps and fans is squarely in this
+        space.</li>
+    <li><strong>L0, L4, L5, U5</strong> &mdash; low power, for battery products
+        (<a href="28-low-power-and-watchdog.html">chapter 28</a>).</li>
+    <li><strong>WB, WL</strong> &mdash; integrated radio, Bluetooth and LoRa.</li>
+    <li><strong>MP1</strong> &mdash; not a microcontroller in the sense of this course: a Cortex-A
+        running Linux with an M4 beside it.</li>
+  </ul>
+  <p>
+    The practical fact behind the scheme: <strong>pin count and package are largely compatible within
+    a family</strong>, so an F407V and an F405V share a footprint, and moving up in flash within the
+    same line is a purchasing decision rather than a redesign. That compatibility is much of why ST is
+    chosen in the first place.
+  </p>
+</div>
+
+<h2 id="choosing">What actually decides the choice</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Beginners choose by speed and memory, because those are the numbers on the front page. Real
+    projects almost never run out of speed first. They run out of the <em>right pins</em>: three
+    serial ports and only two that can reach the pins the board layout needs, or a timer that cannot
+    drive that particular pin.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The constraints in roughly the order they bind, which is also a good answer when an interviewer
+    asks how you would choose:
+  </p>
+  <ol>
+    <li><strong>Peripherals, by count and by kind.</strong> Two CAN controllers or one? A USB device
+        <em>and</em> Ethernet? Enough timers with complementary outputs and dead-time insertion for
+        the motor stages (<a href="32-timers-and-pwm.html">chapter 32</a>)? This is where most
+        candidate parts are eliminated.</li>
+    <li><strong>Pin mapping, not just pin count.</strong> Each function appears only on certain pins
+        through the alternate-function mux (<a href="31-gpio.html">chapter 31</a>), and two functions
+        you need can collide on the same pin. CubeMX's pinout view is genuinely the right tool here,
+        and this is the step beginners skip.</li>
+    <li><strong>Memory, with headroom.</strong> A project that fits in 100 % of flash on day one does
+        not fit on day two hundred. A conventional rule is to plan for about half, because field
+        update, a bootloader and diagnostics all arrive later
+        (<a href="34-flash-and-bootloader.html">chapter 34</a>).</li>
+    <li><strong>Power and thermal</strong>, if the product is battery or sealed.</li>
+    <li><strong>Availability and lifecycle.</strong> After 2021 nobody in this industry chooses a part
+        without checking longevity commitments and real lead times. A technically perfect part with a
+        fifty-week lead time is the wrong part, and choosing a family where several pin-compatible
+        options exist is a genuine risk control.</li>
+    <li><strong>Ecosystem and continuity.</strong> The team's existing drivers, the debugger they own,
+        and whether the vendor's HAL supports the peripheral you need in the way you need it.</li>
+    <li><strong>Unit cost</strong>, which matters at volume and is usually the last tie-breaker at
+        low volume, because an engineering week costs more than a thousand chips.</li>
+  </ol>
+  <p>
+    A note that is worth saying in an interview because it shows you have thought past the datasheet:
+    <strong>speed is often the wrong axis entirely.</strong> Moving from a 72 MHz M3 to a 400 MHz M7
+    can make a system <em>less</em> deterministic, because caches and a more complex bus matrix widen
+    the spread between best and worst case (<a href="43-timing-and-jitter.html">chapter 43</a>).
+    Real-time is about the worst case, not the average
+    (<a href="37-what-real-time-means.html">chapter 37</a>).
+  </p>
+</div>
+
+<h2 id="boards">Development boards, and what to actually buy</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    You do not need a custom board to learn this. ST sells small boards with the chip, a debugger and
+    the connectors already on them, for the price of a pizza.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>Nucleo</strong> &mdash; about fifteen euro, an onboard ST-LINK, Arduino and Morpho
+        headers, and a virtual COM port over the same USB cable. For learning this course, a
+        <strong>Nucleo-F446RE or F401RE</strong> is the sensible default: the F4 line has the most
+        written about it, and every chapter here maps onto it.</li>
+    <li><strong>Discovery</strong> &mdash; more peripherals soldered on (screen, audio, sensors), good
+        for exploring a specific capability.</li>
+    <li><strong>Eval</strong> &mdash; everything, expensive, for real product evaluation.</li>
+  </ul>
+  <p>
+    Two accessories change what you can learn, and both are cheap. A <strong>logic analyser</strong>
+    &mdash; a clone costs under twenty euro and turns
+    <a href="47-framing.html">framing</a>, <a href="48-spi-and-i2c.html">SPI and I&sup2;C</a> from
+    theory into something you can see. And a <strong>USB-to-RS485 adapter</strong>, which lets you
+    talk <a href="50-modbus-rtu.html">Modbus RTU</a> to your own board from a PC, which is the single
+    most job-relevant thing you can build at a desk in this region's market.
+  </p>
+  <p>
+    The honest boundary, stated on the front page of this course and worth repeating here: the board
+    teaches everything except what a board teaches. Layout, EMC, a supply that sags when a relay
+    closes, a connector that vibrates loose &mdash; those need
+    <a href="63-reading-a-schematic.html">the hardware team</a> and real products, and a CV should not
+    claim them (<a href="70-the-cv.html">chapter 70</a>).
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>stm32, f0, f1, f4, f7, g0, g4, h7, l4, wb</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>&ldquo;It is all STM32, so the code will port.&rdquo;</strong>
+  </p>
+  <p>
+    Within a family, mostly true. Across families, the peripherals are frequently <em>different
+    designs with the same name</em>, and the differences are exactly the kind that compile cleanly and
+    behave differently. The F1's GPIO configuration registers have a completely different layout from
+    the F4's. The F4 and the L4 have different ADC designs with different calibration requirements.
+    An F7 or H7 adds caches, so a DMA buffer that worked on an F4 now needs cache maintenance or a
+    non-cacheable MPU region (<a href="27-dma.html">chapter 27</a>). Even the HAL changes shape
+    between families, so code that &ldquo;only uses the HAL&rdquo; ports with edits and retesting, not
+    by recompiling.
+  </p>
+  <p>
+    What makes a port cheap is not choosing the same vendor; it is the layering from
+    <a href="35-firmware-architecture.html">chapter 35</a>. If register access lives only in the
+    hardware layer, a family change is a bounded rewrite of known files, and the device and
+    application layers &mdash; along with their host tests &mdash; carry over unchanged. That is the
+    concrete, checkable benefit of the architecture, and it is a much better answer in an interview
+    than &ldquo;we used the HAL&rdquo;.
+  </p>
+  <p>
+    The related purchasing trap: choosing a part because a forum post or a tutorial used it. The
+    tutorial's author had different constraints, and frequently an older silicon revision whose errata
+    differ from the one you will buy.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> The first four cost nothing and are the ones an interviewer's question
+  actually probes.</p>
+  <pre><code>1. Decode five part numbers, out loud, without the table:
+   STM32F103C8T6, STM32F407VGT6, STM32G474RET6, STM32L476RGT6,
+   STM32H743ZIT6. Family, sub-family, pins, flash, package, temp.
+   The first one is the "blue pill" and knowing what it is matters,
+   because half the tutorials on the internet use it.
+
+2. Do a real selection exercise. Requirements: two CAN interfaces,
+   one RS-485 UART, 8 PWM outputs with dead time, 12 analogue inputs,
+   an EEPROM emulation area, -40..85 C, and availability today. Use
+   ST's product selector, narrow it, and write down WHY each
+   candidate survived or died. Then check lead times on a
+   distributor. That exercise is the chapter.
+
+3. Open CubeMX for your chosen part and try to assign all the
+   functions from exercise 2 at once. Watch a conflict appear on a
+   pin. That is the constraint nobody sees from the summary page.
+
+4. Take one peripheral -- GPIO configuration is the clearest -- and
+   compare its register section in the F1 reference manual with the
+   F4's. Same peripheral name, different registers. That comparison
+   is what "it is all STM32" misses.
+
+5. Then buy a Nucleo-F446RE, a logic analyser clone and a USB-RS485
+   adapter. About fifty euro total, and it unlocks every practical
+   exercise in Parts 4 to 7 of this course.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>The part number is a sentence</strong>: family, sub-family, pins, flash, package,
+        temperature. Learn to read it.</li>
+    <li><strong>Choose by peripherals and pin mapping first</strong>, not by clock speed.</li>
+    <li><strong>Pin count is not pin availability.</strong> The alternate-function mux decides, and
+        collisions are found in the pinout tool.</li>
+    <li><strong>Leave memory headroom</strong> &mdash; a bootloader, diagnostics and field update all
+        arrive later.</li>
+    <li><strong>Availability and longevity are engineering constraints</strong>, and pin-compatible
+        alternatives are a risk control.</li>
+    <li><strong>Faster can be less deterministic.</strong> Caches and complex bus matrices widen the
+        worst case.</li>
+    <li><strong>Peripherals with the same name differ across families</strong> &mdash; GPIO, ADC,
+        caches &mdash; and they differ in ways that compile cleanly.</li>
+    <li><strong>What makes a port cheap is the layering</strong>, not the vendor.</li>
+    <li><strong>A Nucleo plus a logic analyser plus a USB-RS485 adapter</strong> is about fifty euro
+        and covers most of this course.</li>
+    <li><strong>The board cannot teach you layout, EMC or a sagging supply.</strong> Do not claim
+        them.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Come sceglierebbe il microcontrollore per un prodotto nuovo?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Non parto dai megahertz, parto dalle periferiche: quanti CAN, quante seriali, quanti
+    timer con uscite complementari e dead time se ci sono stadi di potenza, quanti canali analogici. L&igrave;
+    si elimina gi&agrave; quasi tutto. Poi guardo la mappatura dei pin, non il numero: ogni funzione
+    esce solo su certi pin attraverso il mux delle alternate function, e due cose che mi servono
+    possono collidere sullo stesso pin &mdash; &egrave; il passaggio che si salta pi&ugrave; spesso e
+    si paga in fase di layout. Poi memoria con margine, perch&eacute; bootloader, diagnostica e
+    aggiornamento in campo arrivano dopo e nessun progetto resta della dimensione del primo giorno; e
+    poi disponibilit&agrave; e longevit&agrave;, che dal 2021 sono un vincolo di progetto a tutti gli
+    effetti &mdash; preferisco una famiglia dove ho alternative pin-compatibili. Una cosa che dico
+    volentieri: pi&ugrave; veloce non vuol dire pi&ugrave; adatto. Passando a un M7 con le cache il
+    caso peggiore si allarga, e il real-time &egrave; il caso peggiore, non la media. E sul
+    &lsquo;tanto &egrave; sempre STM32, il codice si porta&rsquo;: dentro la stessa famiglia s&igrave;,
+    fra famiglie no &mdash; GPIO e ADC sono proprio progetti diversi con lo stesso nome. Quello che
+    rende economico un porting non &egrave; il produttore, &egrave; avere gli accessi ai registri
+    confinati nel livello hardware.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

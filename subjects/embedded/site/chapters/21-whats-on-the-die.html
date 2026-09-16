@@ -18,25 +18,261 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 4 — The microcontroller itself <span>&rsaquo;</span> Chapter 21</p>
+<p class="crumbs">Part 4 &mdash; The microcontroller itself <span>&rsaquo;</span> Chapter 21</p>
 <h1>What is actually on the die</h1>
-<p class="lede">Core, flash, SRAM, buses and peripherals. The block diagram on page one of every datasheet, and how to read it.</p>
+<p class="lede">
+  A microcontroller is not a small computer. It is a CPU sharing a bus with a dozen independent
+  hardware state machines, and almost everything that surprises a beginner follows from taking that
+  sentence literally.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> Reading a datasheet and a reference manual is the actual day-one skill, and nothing else in this course works without it.</p>
+  <p>
+    <strong>Not named in any advert</strong>, because it is the ground everything else stands on.
+    Reading a block diagram and a reference manual is the day-one skill: every later chapter &mdash;
+    <a href="23-memory-mapped-io.html">registers</a>,
+    <a href="26-interrupts-and-nvic.html">interrupts</a>, <a href="27-dma.html">DMA</a>,
+    <a href="25-clocks-and-plls.html">clocks</a> &mdash; is a detail of the picture drawn here.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="the-parts">The parts, and the bus between them</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Open the datasheet of any microcontroller and the first picture is a block diagram. In the middle
+    is the processor. Around it are blocks with names like UART, SPI, TIMER, ADC, DMA. Between them
+    is a line called the bus.
+  </p>
+  <p>
+    The processor is one of the blocks, not the boss of all of them. Each peripheral is its own small
+    machine that keeps working while the processor does something else entirely &mdash; a timer counts
+    with nobody watching, a UART shifts bits out one at a time on its own schedule. The processor's
+    job is to set them up, and then to be told when something needs attention.
+  </p>
+  <p>
+    Two kinds of memory sit on the same bus: flash, which holds your program and survives power off,
+    and RAM, which holds your variables and does not.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Concretely, on a mid-range STM32:
+  </p>
+  <ul>
+    <li><strong>The core</strong> &mdash; an ARM Cortex-M, licensed from ARM and identical across
+        vendors (<a href="22-cortex-m.html">chapter 22</a>). It is the <em>least</em>
+        vendor-specific thing on the die, which is why Cortex-M knowledge transfers between an STM32,
+        an NXP and a Nordic part and peripheral knowledge does not.</li>
+    <li><strong>Flash</strong>, typically at <code>0x0800_0000</code>, with wait states because it is
+        slower than the core, plus a prefetch and cache in front of it on faster parts.</li>
+    <li><strong>SRAM</strong>, typically at <code>0x2000_0000</code>, often split into banks with
+        different bus connections &mdash; which matters the moment you use DMA.</li>
+    <li><strong>The peripherals</strong>, each a block of registers in the address space
+        (<a href="23-memory-mapped-io.html">chapter 23</a>), grouped onto buses named AHB and APB by
+        how fast they need to be.</li>
+    <li><strong>The bus matrix</strong>, which is the part most people never picture: several masters
+        &mdash; the core, each DMA controller, sometimes Ethernet or USB &mdash; competing for several
+        slaves. This is why a DMA transfer can slow the CPU down, and why &ldquo;the CPU is idle&rdquo;
+        is not the same as &ldquo;the memory is idle&rdquo;.</li>
+    <li><strong>The clock tree and the power domains</strong>, which decide which of the above is even
+        awake (chapters <a href="25-clocks-and-plls.html">25</a> and
+        <a href="28-low-power-and-watchdog.html">28</a>).</li>
+  </ul>
+  <p>
+    The distinction worth being able to state: a <strong>microcontroller</strong> has its memory and
+    peripherals on the same die, boots from internal flash in microseconds and runs without an
+    operating system; a <strong>microprocessor</strong> needs external DRAM and storage, boots
+    Linux in seconds, and has an MMU. The advert's world is the first one. &ldquo;Embedded
+    Linux&rdquo; on a CV means the second, and conflating them in an interview is a visible mistake.
+  </p>
+</div>
+
+<h2 id="peripherals">A peripheral is a state machine, not a function</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    The hardest mental shift from PC programming is this: when you use a peripheral, you are not
+    calling a function that does something. You are configuring a machine that will then do things by
+    itself, at its own speed, whether or not your code is looking.
+  </p>
+  <p>
+    So the questions change. Not &ldquo;did my function work?&rdquo; but &ldquo;is it enabled, is it
+    clocked, what state is it in, and what will it do when the next byte arrives?&rdquo;
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    Every peripheral in every reference manual has the same four groups of registers, and recognising
+    the pattern lets you read a chapter about a peripheral you have never used:
+  </p>
+  <ul>
+    <li><strong>Control</strong> &mdash; enable bits, mode selection, interrupt and DMA enables.</li>
+    <li><strong>Status</strong> &mdash; flags saying what has happened. Read how they are
+        <em>cleared</em>: write-one-to-clear, cleared by reading the data register, cleared by a
+        software sequence. Getting this wrong gives an interrupt that fires forever, and it is a
+        rite of passage.</li>
+    <li><strong>Data</strong> &mdash; the byte in or out, often the same address for both.</li>
+    <li><strong>Configuration</strong> &mdash; baud rate, prescaler, timing, which are frequently
+        write-protected while the peripheral is enabled. The reference manual will say so in one
+        sentence you can skim past, and the symptom is a setting that silently does not take.</li>
+  </ul>
+  <p>
+    Three properties of hardware that no API hides. Peripherals run <strong>concurrently</strong> with
+    your code, so every shared variable is a concurrency problem
+    (<a href="06-const-and-volatile.html">chapter 6</a>). They are <strong>slow relative to the
+    CPU</strong> &mdash; a byte at 115200 baud takes about 87 &micro;s, which is roughly 15000
+    instructions at 168 MHz, and that arithmetic is the whole argument for interrupts and DMA. And
+    they have <strong>no memory of your intentions</strong>: a peripheral half-configured when an
+    interrupt arrives behaves as it is configured, not as you meant.
+  </p>
+</div>
+
+<h2 id="reading">Reading the documentation set</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    There is not one document, there are four, and knowing which one answers which question saves
+    more time than any other habit in this field.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <ul>
+    <li><strong>The datasheet</strong> &mdash; what the <em>part</em> is: pinout, packages, electrical
+        limits, timings, which peripherals this variant actually has. Per part number.</li>
+    <li><strong>The reference manual</strong> &mdash; what the <em>peripherals do</em>: every register,
+        every bit, the sequences. Per family, so it covers parts you do not have.</li>
+    <li><strong>The programming manual</strong> &mdash; the <em>core</em>: instructions, the MPU,
+        faults. Usually ARM's document, not the vendor's.</li>
+    <li><strong>The errata sheet</strong> &mdash; where silicon disagrees with the reference manual.
+        Read it before a long debugging session rather than after
+        (<a href="67-technical-english.html">chapter 67</a>).</li>
+  </ul>
+  <p>
+    The habit that separates people who are fast from people who are not: <strong>go to the reference
+    manual first and the internet second</strong>. A forum answer is somebody else's part, somebody
+    else's silicon revision and somebody else's clock configuration; the register description is
+    yours. The part number itself tells you which documents apply, and
+    <a href="29-the-stm32-family.html">chapter 29</a> decodes it.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>microcontroller, die, block, diagram, core, flash, sram, bus, matrix, ahb</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>Everything is configured perfectly and the peripheral does nothing, because its clock was
+    never switched on.</strong>
+  </p>
+  <p>
+    Every peripheral sits behind a clock enable bit, off at reset to save power. Write to a
+    peripheral's registers with its clock disabled and, on most STM32 parts, the write is simply
+    discarded &mdash; no fault, no warning. You then read the register back, see zeros, and conclude
+    the chip is broken.
+  </p>
+  <p>
+    It is the single most common beginner failure in this field, it costs hours the first time, and
+    it takes one line to prevent: enable the clock before touching anything, and when a peripheral
+    appears dead, read its configuration registers back <em>first</em>. If they read as zero after
+    you wrote them, the problem is the clock, not your logic
+    (<a href="25-clocks-and-plls.html">chapter 25</a>).
+  </p>
+  <p>
+    The same shape recurs in three other places, and recognising the family is worth more than the
+    individual facts: a GPIO that does nothing because the pin is not in the right alternate-function
+    mode; a timer that does not count because it is held in reset; and a peripheral whose
+    configuration would not take because it must be written while the peripheral is
+    <em>disabled</em>. All four are &ldquo;correct code, wrong prerequisite&rdquo;, and all four are
+    found by reading registers back rather than by staring at source.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> No board needed &mdash; this is a documentation exercise, and it is the
+  one that makes every later chapter cheaper.</p>
+  <pre><code>1. Download the datasheet AND the reference manual for one part --
+   STM32F407 is a good choice, it is everywhere and well documented.
+   Find the block diagram in the datasheet and answer, out loud:
+
+     - which bus is each peripheral on, AHB or APB?
+     - how many DMA controllers are there, and what can they reach?
+     - how many SRAM banks, at what addresses?
+
+2. Pick a peripheral you have never used -- say the CRC unit or the
+   RNG -- and read its register section cold. Identify its control,
+   status, data and configuration registers. It should take ten
+   minutes, and the point is to prove the pattern is real.
+
+3. Find, in the reference manual, the sentence that says a status
+   flag is cleared by reading the data register. There is always one.
+   That single sentence is the difference between a working driver
+   and an interrupt storm.
+
+4. Compute the arithmetic that justifies interrupts: at 115200 baud,
+   8N1, how long is one byte? At 168 MHz, how many instructions is
+   that? Write both numbers down. Every later design decision about
+   polling, interrupts and DMA is downstream of them.
+
+5. Open the errata sheet for the same part and read one item end to
+   end -- description, conditions, impact, workaround. Then ask
+   yourself whether your code would have hit it.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>The CPU is one master among several.</strong> DMA, Ethernet and USB also drive the bus
+        matrix, so an idle CPU does not mean idle memory.</li>
+    <li><strong>A peripheral is a concurrent state machine</strong>, not a function call. Ask what
+        state it is in, not whether your line ran.</li>
+    <li><strong>Every peripheral has control, status, data and configuration registers.</strong>
+        Learn the pattern and you can read any chapter of any reference manual.</li>
+    <li><strong>Know how each status flag is cleared.</strong> The wrong assumption gives an interrupt
+        that never stops.</li>
+    <li><strong>Configuration is often write-protected while the peripheral is enabled.</strong>
+        Settings that silently do not take are usually this.</li>
+    <li><strong>A disabled clock makes register writes disappear without a fault.</strong> Read
+        registers back before blaming your logic.</li>
+    <li><strong>Peripherals are slow compared with the core</strong> &mdash; one UART byte is thousands
+        of instructions &mdash; and that arithmetic is the argument for interrupts and DMA.</li>
+    <li><strong>Datasheet for the part, reference manual for the peripherals, programming manual for
+        the core, errata for the truth.</strong></li>
+    <li><strong>Reference manual first, internet second.</strong> A forum answer is somebody else's
+        silicon.</li>
+    <li><strong>A microcontroller is not a small PC.</strong> Internal flash, no MMU, no OS, boots in
+        microseconds &mdash; and that is a different job from embedded Linux.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Mi descriva cosa c&rsquo;&egrave; dentro un microcontrollore.&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;C&rsquo;&egrave; un core &mdash; su STM32 un Cortex-M, che &egrave; la parte meno
+    specifica del produttore e infatti &egrave; quella che mi porto dietro se cambio marca &mdash;
+    flash e RAM interne, e poi una decina di periferiche, ognuna delle quali &egrave; una macchina a
+    stati hardware che lavora per conto suo. Questa per me &egrave; la differenza mentale col PC: non
+    chiamo una funzione che fa qualcosa, configuro una macchina che poi va avanti da sola mentre il
+    core fa altro. Tutto &egrave; collegato da una matrice di bus, e i master non sono solo il core:
+    anche il DMA, l&rsquo;Ethernet, l&rsquo;USB &mdash; quindi &lsquo;la CPU &egrave; libera&rsquo; non
+    vuol dire &lsquo;la memoria &egrave; libera&rsquo;. Le periferiche hanno tutte la stessa struttura
+    di registri: controllo, stato, dato, configurazione; e le due cose che guardo subito nel reference
+    manual sono come si azzera un flag di stato &mdash; se sbaglio quella, l&rsquo;interrupt non
+    smette pi&ugrave; &mdash; e se la configurazione si pu&ograve; scrivere solo a periferica
+    disabilitata. E la prima cosa che controllo quando una periferica sembra morta &egrave; il clock:
+    se non &egrave; abilitato, le scritture sui registri spariscono senza nessun errore. Rileggo il
+    registro: se torna zero, il problema &egrave; il clock, non il mio codice.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>

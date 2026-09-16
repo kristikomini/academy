@@ -309,4 +309,482 @@ window.QUIZZES = Object.assign(window.QUIZZES || {}, {
       why: "It is a common source of a DMA that never triggers on older families, and a non-problem on parts with a request multiplexer." },
   ],
 
+
+  /* ------------------------------------------------------ 21-whats-on-the-die --- */
+  "21-whats-on-the-die": [
+    { q: "What is the most useful way to think about a peripheral on a microcontroller?",
+      a: ["A library function provided by the vendor", "A concurrent hardware state machine that keeps working while the core does something else", "A region of RAM the core copies data into", "A coprocessor that executes its own instructions"],
+      c: 1,
+      why: "The questions change accordingly: not did my function run, but is it enabled, is it clocked, what state is it in." },
+
+    { q: "Which four groups of registers does essentially every peripheral have?",
+      a: ["Input, output, clock and reset", "Control, status, data and configuration", "Address, length, mode and priority", "Enable, interrupt, buffer and flag"],
+      c: 1,
+      why: "Recognising the pattern is what lets you read a chapter of a reference manual about a peripheral you have never used." },
+
+    { q: "Why does it matter how a peripheral status flag is cleared?",
+      a: ["Because clearing it too often wastes CPU cycles", "Because a flag cleared by the wrong mechanism stays set, so the interrupt re-fires forever and the system appears to hang", "Because the flag must be cleared before the peripheral clock is enabled", "Because the debugger cannot read a set flag"],
+      c: 1,
+      why: "Write-one-to-clear, cleared by reading the data register, or a software sequence: the manual says which, and getting it wrong is a rite of passage." },
+
+    { q: "Writes to a peripheral's registers appear to do nothing and read back as zero. What is the most likely cause?",
+      a: ["The peripheral is faulty", "Its clock enable bit in the RCC was never set, so the writes are discarded with no fault", "The MPU is blocking the region", "The registers are write-only"],
+      c: 1,
+      why: "It is the commonest beginner failure in embedded work, it is completely silent, and reading a register back after configuring it turns the whole class of bug into an assertion." },
+
+    { q: "Besides the core, what else can be a master on the internal bus matrix?",
+      a: ["Nothing; the core is the only master", "DMA controllers, and on larger parts Ethernet and USB", "The flash controller only", "Only peripherals that are explicitly enabled as masters in software"],
+      c: 1,
+      why: "Which is why an idle CPU does not mean idle memory, and why a DMA transfer can slow the core down." },
+
+    { q: "How long does one byte take at 115200 baud, 8N1, and why is that number worth knowing?",
+      a: ["About 9 microseconds, which is why polling is usually fine", "About 87 microseconds, which is roughly 15000 instructions at 168 MHz, and that arithmetic is the argument for interrupts and DMA", "About 870 microseconds, which is why UARTs need DMA", "It depends on the compiler's optimisation level"],
+      c: 1,
+      why: "Ten bits at 115200 baud. Peripherals are enormously slow relative to the core, and every design decision about polling versus interrupts follows from that ratio." },
+
+    { q: "Which document tells you what a specific part number actually has on it, such as pinout and package?",
+      a: ["The reference manual", "The datasheet", "The programming manual", "The errata sheet"],
+      c: 1,
+      why: "Reference manual for the peripherals and their registers, per family; programming manual for the core, usually ARM's; errata for where the silicon disagrees with all of them." },
+
+    { q: "What distinguishes a microcontroller from a microprocessor?",
+      a: ["Clock speed", "The microcontroller has memory and peripherals on the same die, boots from internal flash in microseconds and runs without an OS or MMU", "The microcontroller cannot run C code", "The microprocessor has no interrupts"],
+      c: 1,
+      why: "Embedded Linux on a CV means the second kind of part, and conflating the two in an interview is a visible mistake." },
+
+    { q: "A peripheral's configuration setting silently does not take effect. What should you suspect?",
+      a: ["The compiler optimised the write away", "That register is write-protected while the peripheral is enabled, as the reference manual states in one easily skimmed sentence", "The value was out of range and was clamped", "The peripheral needs a reset before every write"],
+      c: 1,
+      why: "Along with a disabled clock and the wrong alternate function, it is one of the correct-code-wrong-prerequisite family, and all of them are found by reading registers back." },
+
+    { q: "Where should you look first when a peripheral behaves unexpectedly?",
+      a: ["A forum or a tutorial for the same peripheral", "The reference manual's register description for your part", "The vendor HAL's source code", "The errata sheet, before anything else"],
+      c: 1,
+      why: "A forum answer is somebody else's part, silicon revision and clock configuration. The register description is yours." },
+  ],
+
+  /* -------------------------------------------------------------- 22-cortex-m --- */
+  "22-cortex-m": [
+    { q: "In the ARM calling convention on Cortex-M, where do the first four arguments and the return value travel?",
+      a: ["On the stack, with the return value in R12", "In R0 to R3, with the return value in R0", "In R4 to R7, with the return value in R4", "In R0 to R3, with the return value on the stack"],
+      c: 1,
+      why: "R0 to R3 are caller-saved and R4 to R11 callee-saved. That one sentence is enough to read a disassembly and to write a C function called from assembly." },
+
+    { q: "Why does Cortex-M have two stack pointers?",
+      a: ["For redundancy in safety applications", "MSP is used by handlers and after reset, while PSP can give RTOS tasks their own stacks, which keeps interrupt usage off the task stacks", "One is for data and one for return addresses", "PSP is used only in unprivileged code on M0 parts"],
+      c: 1,
+      why: "It is exactly why an RTOS can have a separate interrupt stack, and why knowing which stack you are on is half of hard-fault debugging." },
+
+    { q: "What does the core do automatically on exception entry?",
+      a: ["Nothing; a wrapper written in assembly must save the registers", "It stacks eight words, namely R0 to R3, R12, LR, PC and xPSR, which are precisely the caller-saved registers", "It stacks all sixteen registers", "It switches to a separate register bank"],
+      c: 1,
+      why: "That hardware stacking is why a plain C function can be an interrupt handler with no special keyword and no assembly wrapper." },
+
+    { q: "During debugging you see a value like 0xFFFFFFF9 in LR. What does it mean?",
+      a: ["The stack is corrupted", "It is EXC_RETURN: the core is in a handler, and the value encodes which mode and stack to return to", "A function pointer was overwritten", "The core is executing from a reserved memory region"],
+      c: 1,
+      why: "On exception entry LR is loaded with a magic value rather than a return address. Seeing it is normal, not evidence of corruption." },
+
+    { q: "What is tail-chaining?",
+      a: ["Chaining DMA transfers so one starts when another ends", "Going straight from one exception handler to the next pending one without popping and pushing the stack frame", "Linking interrupt handlers into a single vector", "Deferring a low-priority interrupt until the main loop runs"],
+      c: 1,
+      why: "It makes back-to-back interrupts cheaper than the naive arithmetic suggests." },
+
+    { q: "Why must the low bit of any code address on Cortex-M be 1?",
+      a: ["To distinguish RAM addresses from flash addresses", "It is the Thumb bit, and Cortex-M executes only Thumb-2, so a cleared bit faults immediately", "To mark the address as privileged", "To satisfy the alignment requirement for instructions"],
+      c: 1,
+      why: "A function pointer with the low bit clear is a classic cause of a UsageFault, and the stacked PC makes it obvious." },
+
+    { q: "After a hard fault, what is the fastest route to the cause?",
+      a: ["Add printf statements and bisect the source", "Read the stacked PC to find the faulting instruction, then CFSR for the class and BFAR or MMFAR for the address", "Single-step from reset in the debugger", "Disable optimisation and rebuild"],
+      c: 1,
+      why: "The core has already written down what happened. Two minutes with the fault registers beats thirty minutes of guessing." },
+
+    { q: "A BusFault reports an address in the 0x40000000 range. What is the usual explanation?",
+      a: ["A stack overflow reaching into peripheral space", "A peripheral was accessed while its clock was disabled", "A DMA transfer with the wrong destination", "An MPU region was configured too small"],
+      c: 1,
+      why: "Peripheral space starts at 0x40000000, and an unclocked peripheral is the most common reason an access there faults." },
+
+    { q: "What differs on a Cortex-M0 or M0+ that can break code written for an M4?",
+      a: ["It has no interrupts controller", "It has no unaligned access and no bit-banding, and a reduced instruction set", "Its registers are 16-bit", "It cannot run C code compiled with GCC"],
+      c: 1,
+      why: "Migration downwards is where this bites: code that happily does an unaligned access on an M4 faults on an M0." },
+
+    { q: "Why do DMA buffers need special treatment on a Cortex-M7?",
+      a: ["Because the M7 has no DMA controller", "Because it has instruction and data caches, so the CPU can read stale data after a DMA write unless cache maintenance is performed", "Because its DMA cannot reach SRAM", "Because the M7 requires all buffers to be 32-byte aligned by the compiler"],
+      c: 1,
+      why: "And the debugger hides it, because the debugger reads memory directly rather than through the cache." },
+  ],
+
+  /* -------------------------------------------------------- 25-clocks-and-plls --- */
+  "25-clocks-and-plls": [
+    { q: "What is the state of every peripheral clock gate immediately after reset?",
+      a: ["Enabled, so peripherals are ready to use", "Disabled, to save power, so a peripheral must be clocked before its registers respond", "Enabled only for peripherals on the AHB bus", "Undefined until the PLL locks"],
+      c: 1,
+      why: "Writes to an unclocked peripheral are discarded silently on most STM32 parts, which is why reading a register back is the fastest diagnostic there is." },
+
+    { q: "In what order must flash wait states and core frequency be changed?",
+      a: ["Frequency first, then wait states", "Wait states up before the frequency goes up, and down only after the frequency comes down", "They can be changed in any order", "Wait states must be set only once, at reset"],
+      c: 1,
+      why: "Flash is slower than the core. Running fast against a zero-wait-state setting is a hard fault at best." },
+
+    { q: "Why must every wait for a clock ready flag have a timeout?",
+      a: ["Because the flag can be set before the oscillator is stable", "Because a crystal that never starts otherwise hangs the board inside the clock configuration, before any diagnostics exist", "Because the RCC clears the flag automatically after a few milliseconds", "Because the watchdog cannot be started until the clock is ready"],
+      c: 1,
+      why: "Most published SystemClock_Config functions hang there. The fallback to the internal oscillator is what turns a dead crystal into a degraded mode instead of a dead board." },
+
+    { q: "A timer's period comes out exactly double what you calculated. What is the classic explanation on STM32?",
+      a: ["The prescaler register is a minus-one register", "A timer on an APB bus is clocked at twice the bus clock when that bus prescaler is not 1", "The timer is counting in centre-aligned mode", "The PLL multiplier was applied twice"],
+      c: 1,
+      why: "It is one line in the reference manual and it explains a large share of factor-of-two timing bugs." },
+
+    { q: "Why is the internal RC oscillator marginal for asynchronous serial communication?",
+      a: ["It cannot reach high enough frequencies", "At roughly plus or minus 1 percent over temperature it consumes most of the roughly 2 percent total error budget that a UART link allows between both ends", "It drifts only at start-up", "It cannot drive the UART peripheral clock at all"],
+      c: 1,
+      why: "It works on the bench at room temperature and fails in a hot cabinet. SPI and I2C carry their own clock, so accuracy does not matter there." },
+
+    { q: "Besides oscillator error, what else contributes to baud rate error?",
+      a: ["Nothing else", "The integer division of the peripheral clock to reach the target baud rate, which can be over 1 percent off by itself", "The length of the cable", "The number of stop bits configured"],
+      c: 1,
+      why: "The reference manual prints a table of realised rates and errors. The number you typed is not necessarily the number on the wire." },
+
+    { q: "What does the Clock Security System do?",
+      a: ["It prevents unauthorised changes to the clock configuration", "It detects an external oscillator that has stopped, switches back to the internal one and raises an NMI", "It disables peripheral clocks when the core sleeps", "It verifies the PLL lock range at start-up"],
+      c: 1,
+      why: "A machine whose crystal dies and silently keeps running at a different speed is doing something unpredictable at full power. The CSS turns that into a defined event." },
+
+    { q: "Why must SystemCoreClock be updated after changing the clock tree?",
+      a: ["The RCC reads it to configure the PLL", "Every delay and baud calculation in CMSIS-based code reads that variable, so a stale value makes timing wrong by a fixed ratio", "It is required by the HAL initialisation sequence", "Without it the debugger cannot compute breakpoint timing"],
+      c: 1,
+      why: "It is a plain C variable, not a hardware register, and nothing updates it for you unless you call the CMSIS helper." },
+
+    { q: "How do you verify the clock frequency actually achieved on a board?",
+      a: ["Read the PLL configuration registers back", "Route SYSCLK or HCLK to the MCO pin with a prescaler and measure it, or blink an LED from a timer set for exactly 1 Hz", "Trust CubeMX's clock view", "Compare the boot time against a known reference"],
+      c: 1,
+      why: "Thirty seconds, and it converts a belief into a measurement. Everything downstream depends on it being right." },
+
+    { q: "Why can enabling a peripheral clock and writing its register in the very next instruction lose the write?",
+      a: ["The compiler may reorder the two statements", "There is a documented delay between enabling a peripheral clock and being able to access the peripheral, which is why the HAL macros insert a read-back", "The write needs the peripheral to be reset first", "The RCC register is write-only"],
+      c: 1,
+      why: "ST's errata describe it. It is the subtler version of the disabled-clock trap, and it catches people who already know about the first one." },
+  ],
+
+  /* ----------------------------------------------- 28-low-power-and-watchdog --- */
+  "28-low-power-and-watchdog": [
+    { q: "What is the cheapest worthwhile low-power change in most firmware projects?",
+      a: ["Lowering the core clock frequency", "Making the idle path __WFI() instead of a spin loop", "Disabling unused peripherals in software", "Switching from push-pull to open-drain outputs"],
+      c: 1,
+      why: "One line, no added complexity, and the core stops until the next interrupt with all state intact." },
+
+    { q: "What distinguishes Standby mode from Sleep and Stop?",
+      a: ["It is entered with WFE rather than WFI", "Waking from Standby is a reset, and RAM is lost apart from the backup domain", "It keeps peripherals clocked but stops the core", "It cannot be woken by the RTC"],
+      c: 1,
+      why: "So anything that must survive goes to backup registers or flash, and start-up code must be able to distinguish a power-on from a Standby wake-up." },
+
+    { q: "Why can measuring current with a debugger attached mislead you?",
+      a: ["The debugger adds a fixed offset that is easy to subtract", "SWD keeps the core powered and a halt can prevent the low-power mode being entered at all", "The debugger disables the internal regulator", "Current measurement requires the core to be halted"],
+      c: 1,
+      why: "And on a real board the consumption is often dominated by something outside the MCU entirely, such as regulator quiescent current or a bus pull-up." },
+
+    { q: "Why is a floating input a low-power problem?",
+      a: ["It raises the supply voltage seen by the core", "A floating CMOS input oscillates and can burn more current than the sleeping chip", "It prevents the core entering Stop mode", "It increases the wake-up time from Standby"],
+      c: 1,
+      why: "Unused pins go to analogue mode or get a defined pull. It is a one-line fix with a measurable effect." },
+
+    { q: "Why is IWDG clocked from its own internal oscillator rather than the system clock?",
+      a: ["To make its timing more accurate", "So it keeps counting even if the main clock tree has collapsed, which is precisely the failure it exists to catch", "To allow it to be disabled in software when needed", "Because the system clock is unavailable during flash writes"],
+      c: 1,
+      why: "The cost is accuracy: the LSI is only good to tens of percent, so the timeout must be chosen with that margin." },
+
+    { q: "What is wrong with kicking the watchdog from a periodic timer interrupt?",
+      a: ["Nothing, it is the most reliable place", "The ISR keeps running while the application is deadlocked, so the watchdog certifies that the timer works rather than that the application does", "It uses too much CPU time", "The watchdog cannot be kicked from an interrupt context"],
+      c: 1,
+      why: "It is always done for the most reasonable-sounding reason, namely that the main loop was occasionally too slow, and it neutralises the mechanism entirely." },
+
+    { q: "What is the correct pattern for kicking a watchdog in an RTOS application?",
+      a: ["Each task kicks the watchdog itself when it runs", "Each task reports that it ran, and a single supervisor kicks only when every task has reported within its expected period", "The idle task kicks it, since it runs whenever nothing else does", "The highest-priority task kicks it"],
+      c: 1,
+      why: "That turns one hung task into a reset, instead of a silent partial failure, and it lets a legitimately slow path declare its own longer deadline honestly." },
+
+    { q: "Why should firmware read and record the reset cause at start-up?",
+      a: ["Because the flags must be cleared before the watchdog can be re-enabled", "Because a product that resets periodically and cannot say why is one nobody can diagnose, while a watchdog-reset count is half a diagnosis already", "Because the bootloader needs it to decide which image to run", "Because the RCC will not start peripherals until the flags are read"],
+      c: 1,
+      why: "Power-on, pin, software, IWDG and WWDG are distinguishable, and counting them in non-volatile storage costs about twenty lines." },
+
+    { q: "An IWDG runs from LSI, which stays alive in Stop mode. What does that mean for a device that sleeps for a long time?",
+      a: ["The watchdog is suspended automatically during Stop", "The device will be reset by its own watchdog unless the period exceeds the sleep, or it wakes periodically just to kick", "Stop mode cannot be used with IWDG enabled", "The LSI stops, so the watchdog is harmless"],
+      c: 1,
+      why: "What is not acceptable is disabling the watchdog around the sleep, because the sleep path is where a hang is hardest to notice." },
+
+    { q: "What is the honest limitation of a watchdog?",
+      a: ["It only works while interrupts are enabled", "It is a recovery mechanism, not a correctness one: it converts a hang into a restart and cannot detect wrong output", "It cannot reset peripherals, only the core", "It requires an external supervisor chip to be trustworthy"],
+      c: 1,
+      why: "A device that restarts every thirty seconds and is counted as working is a hidden fault, not a protected system." },
+  ],
+
+  /* --------------------------------------------------- 29-the-stm32-family --- */
+  "29-the-stm32-family": [
+    { q: "In the part number STM32F407VGT6, what do the V and the G encode?",
+      a: ["The voltage range and the silicon revision", "The pin count and the flash size", "The package and the temperature range", "The peripheral set and the core type"],
+      c: 1,
+      why: "V is 100 pins and G is 1 MB of flash. T is the LQFP package and 6 is the minus 40 to 85 degree range." },
+
+    { q: "What usually eliminates candidate parts first in a real selection?",
+      a: ["Clock speed", "The peripheral set, by count and kind, followed by whether the functions can actually be mapped onto available pins", "Unit price", "Flash size"],
+      c: 1,
+      why: "Each function appears only on certain pins through the alternate-function mux, so two functions you need can collide even on a part with plenty of pins." },
+
+    { q: "Why can moving to a much faster core make a system less suitable for real-time work?",
+      a: ["Faster cores have fewer interrupt priority levels", "Caches and a more complex bus matrix widen the spread between best and worst case, and real-time is about the worst case", "Faster cores cannot be clocked down", "The compiler cannot optimise for them as well"],
+      c: 1,
+      why: "The same argument as chapter 37: fast is not the same as predictable, and it is a good thing to be able to say in an interview." },
+
+    { q: "How much flash headroom should a new project plan for?",
+      a: ["None; buy exactly what fits", "Roughly half, because a bootloader, diagnostics and field update all arrive later", "Ten percent is standard practice", "As much as possible, since flash is free"],
+      c: 1,
+      why: "A project that fits in 100 percent of flash on day one does not fit on day two hundred." },
+
+    { q: "Why is availability now treated as an engineering constraint rather than a purchasing detail?",
+      a: ["Because distributors require design registration", "Because a technically perfect part with a fifty-week lead time is the wrong part, so choosing a family with pin-compatible alternatives is a risk control", "Because lifecycle status changes the errata", "Because lead time affects the unit price"],
+      c: 1,
+      why: "After the 2021 shortages nobody in this industry selects a part without checking longevity commitments and real lead times." },
+
+    { q: "Which claim about porting code between STM32 families is accurate?",
+      a: ["Code using only the HAL recompiles unchanged", "Peripherals with the same name are often different designs, so GPIO, ADC and cache behaviour differ in ways that compile cleanly and behave differently", "Only the clock configuration needs changing", "Porting requires changing only the linker script and the startup file"],
+      c: 1,
+      why: "What makes a port cheap is confining register access to the hardware layer, not choosing the same vendor." },
+
+    { q: "What is the STM32MP1 line?",
+      a: ["A low-power Cortex-M0+ family", "A Cortex-A part running Linux with a Cortex-M4 beside it, which is a different job from the rest of this course", "The automotive-qualified version of the F4", "A radio-enabled variant of the L4"],
+      c: 1,
+      why: "Keeping microcontroller work and embedded Linux work distinct on a CV matters, because they are different roles with different interviews." },
+
+    { q: "Which STM32 family is aimed specifically at motor control and digital power?",
+      a: ["F1", "G4, with its fast ADCs, advanced timers and comparators", "L0", "WB"],
+      c: 1,
+      why: "A cooling controller driving pumps and fans with feedback sits squarely in that space." },
+
+    { q: "For learning this course, what hardware is a sensible minimum?",
+      a: ["A full Eval board for the target family", "A Nucleo, a cheap logic analyser and a USB-to-RS485 adapter, roughly fifty euro in total", "Only a simulator, since no hardware is needed", "A custom board designed for the purpose"],
+      c: 1,
+      why: "That set unlocks the practical exercises in Parts 4 to 7, including talking Modbus RTU to your own board from a PC." },
+
+    { q: "What can a development board not teach you?",
+      a: ["Interrupt handling and DMA", "Board layout, EMC behaviour, a supply that sags when a relay closes, and connectors that vibrate loose", "Protocol implementation", "Clock configuration"],
+      c: 1,
+      why: "That boundary is stated on the front page of this course, and chapter 70 is about what it means for a CV." },
+  ],
+
+  /* ------------------------------------------------------------------ 31-gpio --- */
+  "31-gpio": [
+    { q: "What are the four GPIO modes on an STM32?",
+      a: ["Read, write, bidirectional and tristate", "Input, output, alternate function and analogue", "Digital, analogue, interrupt and DMA", "Push-pull, open-drain, pull-up and pull-down"],
+      c: 1,
+      why: "Analogue mode disconnects the digital input buffer, which is both what the ADC needs and the lowest-power state for an unused pin." },
+
+    { q: "Why does writing to ODR with a read-modify-write risk losing another pin's state?",
+      a: ["ODR is write-only on some families", "The sequence is three operations, and an interrupt that changes a different pin in the same port between them is undone when the old value is written back", "The compiler may reorder the read and the write", "ODR is updated only at the next clock edge"],
+      c: 1,
+      why: "The bug appears occasionally and only under load, which is the worst possible signature." },
+
+    { q: "How does the BSRR register work?",
+      a: ["Writing a 1 toggles the corresponding pin", "The low 16 bits set pins and the high 16 bits reset them, with zeros ignored, so one write changes several pins atomically", "It mirrors ODR but is faster to access", "It sets the pin direction rather than its level"],
+      c: 1,
+      why: "No read is involved, so there is nothing for an interrupt to come between." },
+
+    { q: "What is the difference between reading IDR and reading ODR?",
+      a: ["They always return the same value on an output pin", "ODR is what you asked for, IDR is what the pin actually is, and on an open-drain output a difference means something external is holding the line", "IDR works only on input pins", "ODR reflects the pull-up configuration"],
+      c: 1,
+      why: "That difference is how a stuck I2C bus is detected." },
+
+    { q: "What does the GPIO speed setting actually control?",
+      a: ["The maximum frequency the pin can toggle at in software", "The slew rate of the output driver, trading edge speed against radiated emissions and ringing", "The sampling rate of the input buffer", "The current the pin can source"],
+      c: 1,
+      why: "Boards that fail EMC testing surprisingly often have every pin set to the fastest setting for no reason." },
+
+    { q: "Why is open-drain required for I2C?",
+      a: ["Because it is faster than push-pull", "Because several devices share the line and only pulling low, with a resistor providing the high, means no two drivers ever fight", "Because I2C uses 5 V signalling", "Because the internal pull-ups are only available in that mode"],
+      c: 1,
+      why: "It is also how a 3.3 V part can drive a 5 V input when the pin is five-volt tolerant and the other side has its own pull-up." },
+
+    { q: "You reconfigure PA13 as a general-purpose output and the debugger can no longer connect. Why?",
+      a: ["The pin is reserved for the internal reference", "PA13 is SWDIO, and the reconfiguration happens microseconds after reset, before a debugger can attach", "Configuring it triggers read protection level 2", "The port clock disables the debug interface"],
+      c: 1,
+      why: "The recovery is connect-under-reset, or booting the system bootloader with BOOT0. Everybody who has done it once checks the pin list forever after." },
+
+    { q: "Why can two edge-triggered inputs not be on PA0 and PB0?",
+      a: ["Both ports cannot be clocked simultaneously", "EXTI lines are shared by pin number across ports, so both map to EXTI0", "Port A has priority over port B in the NVIC", "PB0 cannot generate interrupts"],
+      c: 1,
+      why: "It is a schematic-level constraint discovered in firmware, and it is worth catching at review rather than after layout." },
+
+    { q: "What is the correct way to debounce a mechanical contact?",
+      a: ["A delay inside the interrupt handler", "Sampling on a periodic tick and requiring several consecutive agreeing samples, or ignoring changes for a settling period after the first edge", "Increasing the GPIO speed setting", "Enabling the internal pull-up and reading once"],
+      c: 1,
+      why: "A delay inside an ISR blocks everything else in the system, and it is the version everybody writes first." },
+
+    { q: "A relay must stay open between power-on and the moment your initialisation code runs. Where does that requirement belong?",
+      a: ["In the first lines of main, before anything else", "In the hardware: pins are inputs until configured, so a defined level in that window needs an external pull resistor", "In the bootloader", "In the option bytes"],
+      c: 1,
+      why: "Noticing this during a schematic review is one of the most useful contributions a firmware engineer makes to a board." },
+  ],
+
+  /* ------------------------------------------------------- 32-timers-and-pwm --- */
+  "32-timers-and-pwm": [
+    { q: "What is the update rate of a timer in terms of its registers?",
+      a: ["f_clk divided by ARR", "f_clk divided by the product of PSC plus one and ARR plus one", "f_clk divided by PSC, times ARR", "f_clk divided by the sum of PSC and ARR"],
+      c: 1,
+      why: "Both are minus-one registers, which is responsible for a steady trickle of off-by-one frequency errors." },
+
+    { q: "How should the split between prescaler and reload value be chosen?",
+      a: ["Use the largest prescaler that works, to keep ARR small", "Use the smallest prescaler that keeps ARR inside the counter width, because the prescaler costs duty resolution", "They should be roughly equal", "Set the prescaler to zero whenever possible"],
+      c: 1,
+      why: "The same frequency with ARR at 9 instead of 999 gives ten duty steps instead of a thousand, and a fan that can only be driven in 10 percent jumps." },
+
+    { q: "What does the preload bit on a PWM compare register prevent?",
+      a: ["The output being stuck high after a duty change", "A glitched cycle when a new duty value is written after the counter has already passed it", "The timer being reconfigured while running", "Interrupt jitter on the update event"],
+      c: 1,
+      why: "With preload, the new value takes effect at the next update event. Without it, a smaller value written mid-cycle can produce a full-width pulse, which on a power stage is a real current spike." },
+
+    { q: "What is dead-time insertion on an advanced timer for?",
+      a: ["Filtering noise on the input capture pins", "Guaranteeing in hardware that the high-side and low-side switches of a bridge are never on simultaneously", "Delaying the start of PWM after a reset", "Inserting a gap between DMA transfers"],
+      c: 1,
+      why: "It is a hardware guarantee precisely because software cannot be trusted with it." },
+
+    { q: "Why is input capture better than reading a pin in an interrupt for measuring pulse width?",
+      a: ["It uses less flash", "The hardware latches the counter at the exact edge, so the measurement carries no software latency or jitter", "It does not require the timer clock to be enabled", "It can measure signals faster than the CPU clock"],
+      c: 1,
+      why: "PWM input mode goes further and captures period and width simultaneously using two channels on the same pin." },
+
+    { q: "A capture-based period measurement is correct for fast signals and silently wrong for slow ones. Why?",
+      a: ["The prescaler changes with frequency", "The counter wrapped more than once between captures, and unsigned subtraction only handles a single wrap", "The capture register overflows before it is read", "Slow signals do not trigger the capture edge"],
+      c: 1,
+      why: "Count update events to build a wider timestamp, or use a 32-bit timer. A slowly turning fan reporting high RPM is the classic symptom." },
+
+    { q: "What should firmware do when no capture edge arrives at all?",
+      a: ["Keep waiting, since the next edge must come eventually", "Treat it as a defined state such as stopped or disconnected, detected by a timeout", "Report the last valid measurement", "Reset the timer and retry indefinitely"],
+      c: 1,
+      why: "A measurement needs a defined out-of-range answer, and the absence of an event must be detectable in bounded time." },
+
+    { q: "You enable a capture interrupt but never read CCR in the handler. What happens?",
+      a: ["The capture value is lost but the system runs normally", "The flag stays set, so the interrupt re-fires immediately and the system appears to hang", "The timer stops counting", "The DMA request is raised instead"],
+      c: 1,
+      why: "The same status-flag family as chapter 21: know how each flag is cleared." },
+
+    { q: "Why let a timer trigger the ADC rather than starting conversions in software?",
+      a: ["It uses fewer ADC channels", "Samples are then taken at exact instants regardless of what the CPU is doing, which is what makes a control loop deterministic", "Software triggering is not supported on STM32", "It avoids needing DMA"],
+      c: 1,
+      why: "Software sampling jitters with whatever else the system was doing, and that jitter is invisible in the data and fatal to frequency analysis." },
+
+    { q: "What is the general argument for replacing software delays with timers?",
+      a: ["Timers use less flash than delay loops", "Hardware timing does not degrade under load, whereas a software delay is correct when idle and wrong exactly when the system is busy", "Delay loops are forbidden by MISRA", "Timers are more accurate at low frequencies only"],
+      c: 1,
+      why: "A spare timer free-running at 1 MHz is also the cheapest profiler in existence: read, call, read, subtract." },
+  ],
+
+  /* --------------------------------------------- 33-adc-and-the-analogue-chain --- */
+  "33-adc-and-the-analogue-chain": [
+    { q: "A 12-bit ADC measures against a 3.3 V supply specified at plus or minus 2 percent. What is the accuracy of the result?",
+      a: ["About 0.02 percent, set by the resolution", "About 2 percent, because the whole chain is only as accurate as its reference", "About 0.1 percent after averaging", "It depends only on the sampling time"],
+      c: 1,
+      why: "Resolution is not accuracy. A 16-bit result on a 2 percent reference is a precisely reported wrong number." },
+
+    { q: "What is a ratiometric measurement?",
+      a: ["Measuring two channels and taking their ratio to cancel noise", "Powering the sensor from the same reference the ADC uses, so reference error cancels out of the result", "Scaling the raw count by a calibration ratio stored in flash", "Sampling at a rate proportional to the signal frequency"],
+      c: 1,
+      why: "It costs nothing and is frequently the right engineering answer when accuracy matters." },
+
+    { q: "Why does a high source impedance cause low ADC readings?",
+      a: ["The input leakage current drops the voltage", "The sample-and-hold capacitor charges through that impedance and does not reach the pin voltage within the configured sampling time", "The ADC reference sags under load", "The internal multiplexer attenuates high-impedance sources"],
+      c: 1,
+      why: "The datasheet states a maximum source impedance per sampling-time setting. A 100 k divider at the shortest setting reads low and looks like a calibration error." },
+
+    { q: "Channel 2 of a scanned ADC appears to follow channel 1. What is the cause?",
+      a: ["The channels are wired together on the board", "Charge is carried between channels because the sampling time is too short for the sample capacitor to settle on the new channel", "The DMA is writing results in the wrong order", "The channels were configured with different resolutions"],
+      c: 1,
+      why: "The cure is sampling time, not software, and adding 100 nF at the pin makes the whole problem smaller." },
+
+    { q: "What can be done in software about aliasing?",
+      a: ["Averaging removes it", "Nothing: anything above half the sampling rate returns disguised as a slow signal, and only a filter before the pin prevents it", "Increasing the ADC resolution removes it", "Sampling at random intervals removes it"],
+      c: 1,
+      why: "An RC low-pass before the pin is the only answer, and it is a schematic conversation rather than a firmware one." },
+
+    { q: "By how much does averaging 16 samples reduce random noise, and what does it not help?",
+      a: ["By 16 times, and it also removes periodic interference", "By about 4 times, the square root of N, and it does nothing against a periodic interferer such as mains or a switching supply", "By 2 times, and it removes aliasing", "It has no effect unless the samples are taken at different gains"],
+      c: 1,
+      why: "So 16 samples buy about two extra effective bits against noise, and zero bits against a 50 Hz interferer." },
+
+    { q: "A reading is noisy. What should be done before adding a filter?",
+      a: ["Increase the ADC resolution", "Capture raw samples and look at them, because a periodic pattern names an interferer while random scatter is genuine noise", "Add a moving average and confirm the display is stable", "Lower the sampling rate"],
+      c: 1,
+      why: "A filter added first does not remove the interference, it removes your ability to see it, and it will later hide a real measurement error." },
+
+    { q: "How should a scaled measurement be stored and named in firmware?",
+      a: ["As a float in volts, converted at the point of use", "As a scaled integer with the unit in the identifier, such as temp_c_x10, with a wide enough intermediate type in the arithmetic", "As the raw count, converted only for display", "As a fixed-point type defined by the vendor HAL"],
+      c: 1,
+      why: "Scaled integers are exact, are what a PLC expects, and keep floating point out of interrupt paths. The unit lives in the name or it lives in somebody's memory." },
+
+    { q: "A raw reading sits at zero or at full scale. What does that usually mean?",
+      a: ["The signal is genuinely at the limit of its range", "The sensor is probably disconnected or shorted, so it should be reported as a fault rather than as a plausible extreme value", "The ADC needs recalibration", "The sampling time is too long"],
+      c: 1,
+      why: "Reporting minus forty degrees because of a broken wire is worse than reporting a fault." },
+
+    { q: "Why does industrial instrumentation use 4 to 20 mA rather than a voltage?",
+      a: ["Because current is cheaper to generate", "Because a current loop is immune to voltage drop along a long cable, and 0 mA is distinguishable from a valid zero, so a broken wire is detectable", "Because ADCs measure current more accurately", "Because it allows multiple sensors on one pair"],
+      c: 1,
+      why: "The same instinct as a heartbeat counter: make the absence of a signal detectable rather than plausible." },
+  ],
+
+  /* ------------------------------------------------- 34-flash-and-bootloader --- */
+  "34-flash-and-bootloader": [
+    { q: "What is the asymmetry that shapes every flash-based design?",
+      a: ["Reads are slower than writes", "Erase sets a whole sector to ones and is slow, while writing can only clear bits, so changing one byte back requires erasing its whole sector", "Writes must be aligned to 256-byte pages", "Flash can only be written once per power cycle"],
+      c: 1,
+      why: "Erase granularity plus write-only-clears is where the two-image layout, wear levelling and the power-cut rule all come from." },
+
+    { q: "Why must the routine that writes flash sometimes run from RAM?",
+      a: ["Because flash is read-protected during a write", "Because the flash is unreadable while being erased or written, so code executing from it, including any interrupt that can fire, would stall or fault", "Because the write routine is too large for flash", "Because the linker cannot place it in flash"],
+      c: 1,
+      why: "A sector erase takes tens to hundreds of milliseconds, which also has to fit inside the watchdog period." },
+
+    { q: "What happens if read protection level 2 is set on an STM32?",
+      a: ["Flash reads are blocked until the next power cycle", "The debug interface is disabled permanently and irreversibly, so the part can never be debugged again", "The chip mass-erases on the next debugger connection", "Option bytes become read-only but debugging still works"],
+      c: 1,
+      why: "Level 1 blocks debugger access and returning to level 0 mass-erases, which is the intended path. Level 2 is a production decision, never a development convenience." },
+
+    { q: "What is the single design rule behind a safe field-update mechanism?",
+      a: ["The update must complete within one watchdog period", "At every instant, including the instant power fails, a program that will run at the next power-up must still exist on the device", "The new image must be smaller than the old one", "The application must erase itself before receiving the new image"],
+      c: 1,
+      why: "A two-slot layout makes the switch atomic; a single-slot one is recoverable only because the bootloader survives and can ask for the image again." },
+
+    { q: "What must a bootloader check before jumping to an application?",
+      a: ["That the application's first instruction is valid Thumb code", "A magic number, a length and a CRC over the whole image, written into a header by the build process", "That the application was built with the same compiler version", "That the reset cause was not a watchdog reset"],
+      c: 1,
+      why: "That check is exactly what makes a half-written flash survivable rather than fatal." },
+
+    { q: "An application runs correctly when flashed directly but crashes when launched by the bootloader. What is the classic cause?",
+      a: ["The application was linked at the wrong optimisation level", "The bootloader left peripherals, interrupts or DMA enabled, so something fires into an application that has not installed its handlers yet", "The CRC check corrupted the first sector", "The stack pointer was not aligned to 8 bytes"],
+      c: 1,
+      why: "De-initialise everything you enabled, set VTOR, load the stack pointer from the first word, then branch to the second." },
+
+    { q: "Why does a bootloader need an escape hatch such as a pin or a boot-failure counter?",
+      a: ["To allow factory calibration data to be loaded", "Because a device whose only route to recovery is a working application can be bricked by a bad update", "To satisfy read protection requirements", "To allow the watchdog to be disabled during updates"],
+      c: 1,
+      why: "ST parts also carry a system bootloader in ROM, selectable with BOOT0, which cannot be bricked and is the last-resort path." },
+
+    { q: "What does a CRC over a firmware image prove, and what does it not?",
+      a: ["It proves both integrity and authenticity", "It proves the image is intact, not that it came from you; that needs a signature", "It proves the image matches the hardware revision", "It proves the transfer used the correct block size"],
+      c: 1,
+      why: "Signature verification is increasingly a legal requirement for connected products rather than a luxury." },
+
+    { q: "Which test decides whether a field-update design is actually correct?",
+      a: ["Updating a hundred times successfully", "Interrupting the update at random points, repeatedly and automatically, and checking what runs at the next power-up", "Verifying the CRC of every transferred block", "Measuring the total update time"],
+      c: 1,
+      why: "Almost every update mechanism is tested by updating and almost none by interrupting, yet the interruption is the only case the design exists for." },
+
+    { q: "After an update, a device reads plausible nonsense from its stored parameters. What was missed?",
+      a: ["The parameter area was not erased", "The parameter block layout changed between versions with no version field and no explicit migration on first boot", "The CRC did not cover the parameter area", "The parameters were stored in RAM rather than flash"],
+      c: 1,
+      why: "Version the block, migrate it explicitly, and say so in the release notes, because something happens to those parameters either way." },
+  ],
+
 });

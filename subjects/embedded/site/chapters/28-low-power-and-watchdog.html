@@ -18,25 +18,280 @@
   <aside class="sidebar" id="sidebar"></aside>
   <main class="main">
 
-<p class="crumbs">Part 4 — The microcontroller itself <span>&rsaquo;</span> Chapter 28</p>
+<p class="crumbs">Part 4 &mdash; The microcontroller itself <span>&rsaquo;</span> Chapter 28</p>
 <h1>Low power, sleep modes and the watchdog</h1>
-<p class="lede">Sleep, stop, standby, and what survives each. Plus the independent watchdog, and why petting it in a timer interrupt defeats it.</p>
+<p class="lede">
+  Two mechanisms that look unrelated and belong together: the one that decides how little the chip
+  does while waiting, and the one that decides what happens when it stops doing anything at all. The
+  second is the clearest example in this course of a safety feature that is trivial to install and
+  trivial to defeat.
+</p>
 
 <div class="box note">
   <div class="box-title">From the advert</div>
-  <p><strong>Not in any advert.</strong> The watchdog half is universal; it is also the clearest example of a safety mechanism that is easy to install and easy to neutralise.</p>
+  <p>
+    <strong>Not named in this advert</strong> &mdash; a mains-powered controller in a cabinet rarely
+    needs sleep modes. The <strong>watchdog half is universal</strong>: every industrial and
+    automotive product in the corpus has one, it is asked about in interviews, and
+    <a href="65-misra-and-safety.html">functional safety</a> assumes it.
+  </p>
 </div>
 
 <nav id="toc"></nav>
 
-<h2 id="not-yet-written">This chapter is not written yet</h2>
+<h2 id="sleep">Sleep modes: what stays awake, and what it costs to wake</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Most of the time a controller is waiting: for a byte, for a timer, for a button. Waiting in a busy
+    loop burns current for nothing. Every microcontroller can therefore switch parts of itself off and
+    be woken by an event.
+  </p>
+  <p>
+    There is a ladder. At the top, only the processor stops and everything else keeps running &mdash;
+    wakes in a moment, saves a little. At the bottom, almost everything stops including the memory, so
+    waking up means starting again from the beginning &mdash; saves enormously, costs your variables.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The ST naming, which maps onto every other vendor's with different words:
+  </p>
+  <ul>
+    <li><strong>Sleep</strong> &mdash; the core clock stops, peripherals and RAM keep running. Entered
+        with <code>WFI</code> (wait for interrupt) or <code>WFE</code>, exited by any enabled
+        interrupt in a few cycles, with all state intact. This is the one that should be the default
+        in almost every project: <strong>an idle loop that is <code>__WFI()</code> instead of
+        <code>while(1);</code></strong> costs nothing in complexity and cuts current meaningfully.</li>
+    <li><strong>Stop</strong> &mdash; clocks off, PLL off, RAM and register contents retained, woken by
+        EXTI lines and the RTC. Microamps rather than milliamps, and wake-up takes microseconds
+        because the oscillator and PLL must restart &mdash; which is the number to budget for, not the
+        current.</li>
+    <li><strong>Standby</strong> &mdash; nearly everything off, RAM lost except a small backup domain,
+        wake-up is a <em>reset</em>. Design consequence: anything that must survive goes in backup
+        registers or in flash, and your startup code must be able to tell an ordinary power-on from a
+        standby wake-up.</li>
+  </ul>
+  <p>
+    Three practical rules. <strong>The power state of the I/O pins matters as much as the core</strong>
+    &mdash; a floating input on a CMOS pin oscillates and can burn more current than the sleeping
+    chip; unused pins go to analogue or to a defined pull. <strong>Measure, do not estimate</strong>:
+    the datasheet number is a die at 25 &deg;C with peripherals off, and a real board's consumption is
+    usually dominated by something outside the MCU, such as a regulator's quiescent current or a
+    pull-up on an I&sup2;C bus. And <strong>a debugger keeps the core powered</strong>, so current
+    measured with SWD attached is not the product's current, and a breakpoint in a low-power path
+    often prevents the mode being entered at all.
+  </p>
+  <p>
+    For a battery product the figure that decides the design is the <strong>average</strong> current:
+    duty cycle times active current plus the rest of the time at sleeping current, plus the wake-up
+    energy multiplied by how often you wake. Waking ten times a second to check something that changes
+    once an hour is the usual mistake, and the fix is an interrupt instead of a poll
+    (<a href="26-interrupts-and-nvic.html">chapter 26</a>).
+  </p>
+</div>
+
+<h2 id="watchdog">The watchdog: what it is actually for</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    A watchdog is a countdown timer inside the chip that resets the board when it reaches zero. Your
+    program has to keep resetting the countdown &mdash; &ldquo;kicking&rdquo; or &ldquo;feeding&rdquo;
+    it &mdash; to show it is still alive.
+  </p>
+  <p>
+    If the program locks up, crashes, or gets stuck waiting for something that never comes, the
+    countdown finishes and the board restarts. On a machine in a factory, a device that restarts in
+    two seconds is enormously better than one that hangs until somebody notices.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    On STM32 there are two, and the difference is the interesting part:
+  </p>
+  <ul>
+    <li><strong>IWDG</strong>, the independent watchdog. Clocked from the <strong>LSI</strong>, its own
+        internal oscillator, so it keeps counting even if the main clock tree has collapsed &mdash;
+        which is precisely the failure it exists for. Once started it cannot be stopped, and its
+        timing is only as accurate as the LSI, meaning tens of percent.</li>
+    <li><strong>WWDG</strong>, the window watchdog. Clocked from the system clock, and it faults both
+        when you are <em>late</em> and when you are <em>early</em>. The window is the point: a kick
+        that arrives too soon suggests code running at the wrong rate or a loop kicking in a place it
+        should not.</li>
+  </ul>
+  <p>
+    The design rules that separate a watchdog that protects a product from one that decorates it:
+  </p>
+  <ul>
+    <li><strong>Kick from one place only</strong>, in the main supervisory loop, and only after
+        checking that everything that must be alive <em>is</em>. In an RTOS, each task sets a flag or
+        updates a timestamp and the supervisor kicks only if every task has reported since the last
+        pass &mdash; that turns one hung task into a reset instead of a silent partial failure.</li>
+    <li><strong>Never kick from a timer interrupt.</strong> A periodic ISR keeps running while the
+        application is deadlocked, so the watchdog reports a healthy system forever. This is the
+        commonest way to neutralise a watchdog, and it is usually done for the most reasonable-sounding
+        reason: &ldquo;the main loop was occasionally too slow&rdquo;.</li>
+    <li><strong>Set the timeout from the measured worst case</strong>, with margin &mdash; long enough
+        that a legitimate slow path never trips it, short enough that the product's own requirement
+        for recovery time is met.</li>
+    <li><strong>Record the reset cause.</strong> The RCC keeps flags saying whether the last reset was
+        power-on, pin, software or watchdog. Read them at startup, clear them, and count watchdog
+        resets in non-volatile storage. A product that resets twice a week and cannot tell you is a
+        product nobody can fix; one that reports &ldquo;IWDG reset, 14 times, last at uptime
+        3 h 20&rdquo; has already half-diagnosed itself.</li>
+  </ul>
+  <p>
+    And the honest limitation to say out loud in an interview: <strong>a watchdog is a recovery
+    mechanism, not a correctness mechanism.</strong> It converts a hang into a restart. It cannot
+    detect wrong output, and a device that restarts every thirty seconds and is counted as working is
+    a hidden fault, not a protected system.
+  </p>
+</div>
+
+<h2 id="together">Why the two chapters are one chapter</h2>
+
+<div class="box kid">
+  <div class="box-title">&#129490; Simple</div>
+  <p>
+    Sleeping and watchdogs collide: while the chip is asleep the countdown may still be running. If it
+    is, the board resets while doing nothing wrong. So the two have to be designed together.
+  </p>
+</div>
+
+<div class="box pro">
+  <div class="box-title">&#127891; Professional</div>
+  <p>
+    The interaction, concretely. IWDG runs from LSI, which stays alive in Stop mode &mdash; so a device
+    that sleeps for longer than the watchdog period is reset by it. Three legitimate answers, and
+    which you choose is a real design decision: make the watchdog period longer than the longest
+    sleep; wake periodically <em>just</em> to kick, paying that energy on purpose; or use the debug
+    freeze bits so the behaviour is at least predictable during development. What is not acceptable is
+    disabling the watchdog around the sleep, because the sleep path is exactly where a hang is hardest
+    to notice.
+  </p>
+  <p>
+    The <strong>debug freeze</strong> registers deserve a line of their own: they stop the watchdog
+    counters while the core is halted by the debugger. Without them, every breakpoint becomes a reset
+    and the watchdog gets disabled &ldquo;temporarily&rdquo; during development &mdash; and a
+    temporarily disabled watchdog has a way of shipping.
+  </p>
+</div>
 
 <div class="box trap">
-  <div class="box-title">&#9888; Honest status</div>
-  <p>The manifest entry, the navigation, the search index and the offline cache all work &mdash;
-  this page is a real chapter in every respect except the one that matters. It is a placeholder,
-  and it is labelled as one rather than being padded out with filler that would read as content.</p>
-  <p>Planned coverage: <em>low, power, sleep, stop, standby, wfi, wfe, wake, up, rtc</em>.</p>
+  <div class="box-title">&#9888; Trap</div>
+  <p>
+    <strong>The watchdog is kicked from a timer interrupt, and it now certifies that the timer
+    works.</strong>
+  </p>
+  <p>
+    It always starts sensibly. The main loop occasionally takes longer than the watchdog period during
+    a flash write or a long protocol frame, the board resets, and moving the kick into the 1 ms timer
+    ISR makes the problem disappear. It disappears because the watchdog no longer measures anything
+    the application does: the ISR runs whatever state the application is in, including deadlocked on a
+    mutex, stuck in a <code>while</code> waiting for a flag that will never set, or looping in a state
+    machine that can never leave its state. The product now has a watchdog in the schematic, in the
+    safety documentation, and in no useful sense at all.
+  </p>
+  <p>
+    The correct fix to the original problem is the supervisory pattern: <strong>every participant
+    reports, one place kicks.</strong> Each task or subsystem updates its own &ldquo;I ran at
+    time T&rdquo; timestamp; a single supervisor checks all of them against their expected periods and
+    kicks only when all are current. The slow flash write then declares its own longer deadline
+    honestly instead of being hidden, and a hung task is caught, which is the entire point.
+  </p>
+  <p>
+    The same anti-pattern, worth recognising in other clothes: a heartbeat counter incremented by a
+    timer rather than by the code path it claims to monitor
+    (<a href="58-talking-to-the-plc.html">chapter 58</a>), and a CI job that reports success because
+    it ran, not because it tested anything
+    (<a href="64a-automotive-v-cycle.html">chapter 64a</a>). A monitor driven by something other than
+    the thing it monitors always reports health.
+  </p>
+</div>
+
+<div class="tryit">
+  <p><strong>Try it.</strong> The watchdog exercises need a board; a Nucleo and its onboard debugger
+  are enough, and a multimeter in series with the supply is enough for the current ones.</p>
+  <pre><code>1. Turn your idle loop into __WFI() and measure the difference. Even
+   on a Nucleo with everything else powered, the drop is visible on a
+   cheap multimeter. That single line is the highest-value low-power
+   change in most projects.
+
+2. Enable IWDG with a 2-second timeout, kick it in the main loop, and
+   then deliberately hang: add a `while (1);` behind a button press.
+   Watch the board come back. Do it once, so you trust it.
+
+3. Read the reset cause at startup and print it -- power-on, pin,
+   software, IWDG, WWDG. Then store a watchdog-reset counter in
+   backup registers or flash and print that too. This is a genuinely
+   professional touch and takes twenty lines.
+
+4. Build the supervisory pattern with three fake tasks: each updates
+   its own timestamp at its own period, a supervisor checks all three
+   and kicks only if all are current. Then stop ONE task and confirm
+   the board resets. Then move the kick into a timer ISR and repeat,
+   and watch it never reset -- that comparison is the whole trap
+   above, demonstrated in ten minutes.
+
+5. Set the debug freeze bits and confirm you can breakpoint without
+   resetting. Then clear them and feel why everybody disables the
+   watchdog during development.
+
+6. If you have a Stop-mode capable board: sleep for 10 s with IWDG
+   running at a 2 s timeout and watch it reset. Then fix it by
+   lengthening the period, and by waking to kick, and decide which
+   you would ship.</code></pre>
+</div>
+
+<div class="rules">
+  <div class="box-title">Golden rules</div>
+  <ul>
+    <li><strong>Idle should be <code>__WFI()</code></strong>, not a spin loop. It is one line.</li>
+    <li><strong>Sleep keeps state; Standby wakes through reset.</strong> Anything that must survive
+        goes to backup registers or flash.</li>
+    <li><strong>Budget wake-up time, not just current</strong> &mdash; the PLL has to restart.</li>
+    <li><strong>Floating inputs cost more than a sleeping core.</strong> Give every unused pin a
+        defined state.</li>
+    <li><strong>Measure current without the debugger attached.</strong> SWD keeps the core alive.</li>
+    <li><strong>IWDG runs from its own oscillator</strong>, so it survives a collapsed clock tree; that
+        is what it is for.</li>
+    <li><strong>Kick from one place, after checking that everything alive reported in.</strong></li>
+    <li><strong>Never kick from a timer interrupt.</strong> It converts the watchdog into a test that
+        the timer works.</li>
+    <li><strong>Read and record the reset cause</strong>, and count watchdog resets in non-volatile
+        storage.</li>
+    <li><strong>Design sleep and watchdog together</strong>, and never disable the watchdog around a
+        sleep.</li>
+    <li><strong>A watchdog recovers, it does not correct.</strong> A device that resets regularly is
+        faulty, not protected.</li>
+  </ul>
+</div>
+
+<div class="qa">
+  <p class="q">&ldquo;Come usa il watchdog?&rdquo;</p>
+  <p class="a">
+    <em>&ldquo;Uso l&rsquo;IWDG, quello indipendente, perch&eacute; ha il suo oscillatore interno e
+    continua a contare anche se l&rsquo;albero dei clock &egrave; andato &mdash; che &egrave;
+    esattamente il guasto per cui esiste. La regola che considero non negoziabile &egrave; che il kick
+    si fa da un punto solo, nel ciclo supervisore, e solo dopo aver verificato che tutto quello che
+    deve essere vivo abbia dato segno di vita: con un RTOS ogni task aggiorna il suo timestamp e il
+    supervisore fa il kick solo se sono tutti aggiornati. Quello che non faccio mai &egrave; metterlo
+    dentro un interrupt di timer: l&rsquo;ISR continua a girare anche con l&rsquo;applicativo bloccato
+    su un mutex, quindi il watchdog smette di misurare l&rsquo;applicazione e certifica che funziona
+    il timer. Succede sempre per il motivo pi&ugrave; ragionevole del mondo, cio&egrave; che ogni tanto
+    il main loop era troppo lento &mdash; ma la risposta giusta &egrave; dichiarare la scadenza vera di
+    quel percorso lento, non nascondere il problema. Poi leggo sempre la causa del reset dai flag
+    dell&rsquo;RCC e tengo un contatore dei reset da watchdog in memoria non volatile: un prodotto che
+    si resetta due volte a settimana e non sa dirtelo non lo aggiusta nessuno. E lo dico chiaro:
+    &egrave; un meccanismo di recupero, non di correttezza. Se un dispositivo si riavvia
+    regolarmente &egrave; guasto, non protetto.&rdquo;</em>
+  </p>
 </div>
 
 <div id="pager"></div>
